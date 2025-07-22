@@ -59,7 +59,7 @@ def design_scene():
 
     # spawn a cuboid
     cfg_cuboid = sim_utils.CuboidCfg(
-        size=[args_cli.size] * 3,
+        size=(args_cli.size) * 3,
         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 1.0)),
     )
     # Spawn cuboid, altering translation on the z-axis to scale to its size
@@ -73,7 +73,7 @@ def main():
     sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
     sim = sim_utils.SimulationContext(sim_cfg)
     # Set main camera
-    sim.set_camera_view([2.0, 0.0, 2.5], [-0.5, 0.0, 0.5])
+    sim.set_camera_view((2.0, 0.0, 2.5), (-0.5, 0.0, 0.5))
 
     # Design scene by adding assets to it
     design_scene()
