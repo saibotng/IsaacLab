@@ -33,7 +33,7 @@
     defaultPrim = "ur5"
     metersPerUnit = 1
     subLayers = [
-        @../../../../../../../../../../workshop-robotics/isaac_sim/models/ur5/ur5/configuration/ur5_base.usd@
+        @./ur5_base.usd@
     ]
     upAxis = "Z"
 )
