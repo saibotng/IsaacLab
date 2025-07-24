@@ -7,7 +7,6 @@ import os
 
 # Constant for the root/base directory of the project (dynamic)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-print(f"Base directory: {BASE_DIR}")
 
 ARM_JOINTS = [
     "shoulder_pan_joint",
