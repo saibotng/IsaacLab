@@ -64,19 +64,19 @@ UR5_CFG = ArticulationCfg(
             damping=40.0,
         ),
         "ur5_hand": ImplicitActuatorCfg(
-            joint_names_expr=["hand_to_.*"],
+            joint_names_expr=GRIPPER_JOINTS,
             effort_limit_sim=200.0,
             velocity_limit_sim=0.2,
             stiffness=5e3,                 # Increased from 2e3 - stronger position hold
             damping=2e2,   
         ),
     },
-        soft_joint_pos_limit_factor=1.0,
+    soft_joint_pos_limit_factor=1.0,
 )
 
 UR5_HIGH_PD_CFG = UR5_CFG.copy()
 UR5_HIGH_PD_CFG.spawn.rigid_props.disable_gravity = True
-UR5_HIGH_PD_CFG.actuators["ur5_shoulder"].stiffness = 800.0
+UR5_HIGH_PD_CFG.actuators["ur5_shoulder"].stiffness = 200.0
 UR5_HIGH_PD_CFG.actuators["ur5_shoulder"].damping = 80.0
-UR5_HIGH_PD_CFG.actuators["ur5_wrist"].stiffness = 800.0
+UR5_HIGH_PD_CFG.actuators["ur5_wrist"].stiffness = 200.0
 UR5_HIGH_PD_CFG.actuators["ur5_wrist"].damping = 80.0

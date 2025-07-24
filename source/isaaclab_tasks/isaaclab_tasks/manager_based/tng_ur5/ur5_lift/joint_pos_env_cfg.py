@@ -19,7 +19,8 @@ from .lift_env_cfg import LiftEnvCfg
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_CFG, ARM_JOINTS, GRIPPER_JOINTS  # isort: skip
-
+from isaaclab.sensors import CameraCfg
+import isaaclab.sim as sim_utils
 
 @configclass
 class UR5CubeLiftEnvCfg(LiftEnvCfg):
@@ -30,6 +31,44 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
         # Set UR5 as robot
         self.scene.robot = UR5_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
+        self.scene.camera_wrist = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/wrist_3_link/camera_wrist",
+            update_period=0.1,
+            height=256,
+            width=256,
+            data_types=["rgb"],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=24.0,
+                focus_distance=400.0,
+                horizontal_aperture=20.955,
+                clipping_range=(0.1, 1.0e5)
+            ),
+            offset=CameraCfg.OffsetCfg(
+                pos=(0.0, -0.11, 0.043),
+                rot=(0.96593, -0.25882, 0.0, 0.0),
+            ),
+        )
+
+        self.scene.camera_global = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global",
+            update_period=0,
+            height=256,
+            width=256,
+            data_types=[
+                "rgb",
+            ],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=24.0,
+                focus_distance=400.0,
+                horizontal_aperture=20.955,
+                clipping_range=(0.1, 1.0e5)
+            ),
+            offset=CameraCfg.OffsetCfg(
+                pos=(2.19, 0.0, 1.5),
+                rot=(0.32651, -0.62721, -0.62721, 0.32651),
+            ),
+        )
+
         # Set actions for the specific robot type (UR5)
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot", joint_names=ARM_JOINTS, scale=0.5, use_default_offset=True
@@ -39,7 +78,7 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
             asset_name="robot",
             joint_names=GRIPPER_JOINTS,
             open_command_expr={joint: 0.0 for joint in GRIPPER_JOINTS},
-            close_command_expr={joint: 0.022 for joint in GRIPPER_JOINTS},
+            close_command_expr={joint: 0.0215 for joint in GRIPPER_JOINTS},
         )
         # Set the body name for the end effector
         self.commands.object_pose.body_name = "wrist_3_link"

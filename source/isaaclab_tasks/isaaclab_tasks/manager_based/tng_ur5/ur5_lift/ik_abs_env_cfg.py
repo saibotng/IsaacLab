@@ -14,7 +14,6 @@ from . import joint_pos_env_cfg
 # Pre-defined configs
 ##
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_HIGH_PD_CFG, ARM_JOINTS  # isort: skip
-
 ##
 # Rigid object lift environment.
 ##
