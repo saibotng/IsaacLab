@@ -21,6 +21,10 @@ from isaaclab.sensors import CameraCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import RecorderTermCfg, RecorderManagerBaseCfg, RecorderTerm, DatasetExportMode
+import torch
+import datetime
 
 from . import mdp
 
@@ -110,21 +114,23 @@ class ObservationsCfg:
     """Observation specifications for the MDP."""
 
     @configclass
-    class PolicyCfg(ObsGroup):
+    class JointObsCfg(ObsGroup):
         """Observations for policy group."""
 
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
-        object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
-        target_object_position = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
-        actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
             self.enable_corruption = True
-            self.concatenate_terms = True
+            self.concatenate_terms = False
+
+    class CameraObsCfg(ObsGroup):
+        camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist")})
+        camera_global = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global")})
 
     # observation groups
-    policy: PolicyCfg = PolicyCfg()
+    joints: JointObsCfg = JointObsCfg()
+    cameras: CameraObsCfg = CameraObsCfg()
 
 
 @configclass
@@ -203,12 +209,51 @@ class CurriculumCfg:
 ##
 
 
+
+class ObservationRecorder(RecorderTerm):
+    """
+    Dump the *already‑computed* observations that the
+    ObservationManager buffered this step.
+    """
+    def record_post_step(self):
+        # The observation manager stores the last obs in `_obs_buffer` :contentReference[oaicite:0]{index=0}
+        obs = self._env.observation_manager.compute()     # 1 μs call, returns dict
+        # Move to CPU so HDF5 export happens from host memory
+        obs_dict = {
+            "joints_pos": obs["joints"]["joint_pos"],
+            "joints_vel": obs["joints"]["joint_vel"],
+            "camera_wrist": obs["cameras"][:, :, :, :3],
+            "camera_global": obs["cameras"][:, :, :, 3:],
+        }
+
+        obs_dict_cpu = {k: (
+            v.cpu() if torch.is_tensor(v)
+            else {kk: vv.cpu() for kk, vv in v.items()}
+        ) for k, v in obs_dict.items()}
+
+        return "obs", obs_dict_cpu
+
+
+@configclass
+class ObservationRecorderCfg(RecorderTermCfg):
+    class_type: type[RecorderTerm] = ObservationRecorder
+
+
+@configclass
+class RecorderCfg(RecorderManagerBaseCfg):
+    record_observation = ObservationRecorderCfg()
+    # where & how to export -------------------------------------------------
+    dataset_export_dir_path = f"/home/luebbet/dev/datasets/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_filename = "all_obs"
+    dataset_export_mode = DatasetExportMode.EXPORT_ALL
+
+
 @configclass
 class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=2, env_spacing=5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -218,6 +263,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
+    recorders: RecorderCfg = RecorderCfg()
 
     def __post_init__(self):
         """Post initialization."""
