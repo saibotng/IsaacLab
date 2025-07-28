@@ -33,9 +33,9 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.camera_wrist = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/wrist_3_link/camera_wrist",
-            update_period=0.1,
-            height=256,
-            width=256,
+            update_period=0,
+            height=512,
+            width=512,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=24.0,
@@ -44,7 +44,7 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(0.0, -0.11, 0.043),
+                pos=(0.0, -0.09, 0.08),
                 rot=(0.96593, -0.25882, 0.0, 0.0),
             ),
         )
@@ -52,8 +52,8 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
         self.scene.camera_global = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/world/camera_global",
             update_period=0,
-            height=256,
-            width=256,
+            height=512,
+            width=512,
             data_types=[
                 "rgb",
             ],
@@ -64,7 +64,7 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(2.19, 0.0, 1.5),
+                pos=(1.5, 0.0, 0.9),
                 rot=(0.32651, -0.62721, -0.62721, 0.32651),
             ),
         )

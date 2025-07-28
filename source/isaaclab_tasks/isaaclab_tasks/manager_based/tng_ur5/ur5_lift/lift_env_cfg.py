@@ -98,6 +98,9 @@ class CommandsCfg:
             pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
+    
+    object_pose.goal_pose_visualizer_cfg.markers["frame"].scale = (0.1e-10, 0.1e-10, 0.1e-10)
+    object_pose.current_pose_visualizer_cfg.markers["frame"].scale = (0.1e-10, 0.1e-10, 0.1e-10)
 
 
 @configclass
@@ -117,16 +120,16 @@ class ObservationsCfg:
     class JointObsCfg(ObsGroup):
         """Observations for policy group."""
 
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel)
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+        joint_pos = ObsTerm(func=mdp.joint_pos)
+        joint_vel = ObsTerm(func=mdp.joint_vel)
 
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = False
 
     class CameraObsCfg(ObsGroup):
-        camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist")})
-        camera_global = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global")})
+        camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist"), "normalize": False})
+        camera_global = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global"), "normalize": False})
 
     # observation groups
     joints: JointObsCfg = JointObsCfg()
@@ -215,15 +218,16 @@ class ObservationRecorder(RecorderTerm):
     Dump the *already‑computed* observations that the
     ObservationManager buffered this step.
     """
-    def record_post_step(self):
+    def record_pre_step(self):
         # The observation manager stores the last obs in `_obs_buffer` :contentReference[oaicite:0]{index=0}
         obs = self._env.observation_manager.compute()     # 1 μs call, returns dict
         # Move to CPU so HDF5 export happens from host memory
+        
         obs_dict = {
-            "joints_pos": obs["joints"]["joint_pos"],
-            "joints_vel": obs["joints"]["joint_vel"],
-            "camera_wrist": obs["cameras"][:, :, :, :3],
-            "camera_global": obs["cameras"][:, :, :, 3:],
+            "joints_pos_state": obs["joints"]["joint_pos"][:, :-1],
+            "joints_vel_state": obs["joints"]["joint_vel"][:, :-1],
+            "camera_global": obs["cameras"][:, :, :, :3],
+            "camera_wrist": obs["cameras"][:, :, :, 3:],
         }
 
         obs_dict_cpu = {k: (
@@ -231,8 +235,18 @@ class ObservationRecorder(RecorderTerm):
             else {kk: vv.cpu() for kk, vv in v.items()}
         ) for k, v in obs_dict.items()}
 
-        return "obs", obs_dict_cpu
-
+        return "obs_pre", obs_dict_cpu
+    
+    def record_post_step(self):
+        obs = self._env.observation_manager.compute_group(group_name="joints")  
+        obs_dict = {
+            "joints_pos_action": obs["joint_pos"][:, :-1],
+        }
+        obs_dict_cpu = {k: (
+            v.cpu() if torch.is_tensor(v)
+            else {kk: vv.cpu() for kk, vv in v.items()}
+        ) for k, v in obs_dict.items()}
+        return "obs_post", obs_dict_cpu
 
 @configclass
 class ObservationRecorderCfg(RecorderTermCfg):
@@ -253,7 +267,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=2, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=20, env_spacing=5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -268,7 +282,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 2
+        self.decimation = 5
         self.episode_length_s = 5.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
