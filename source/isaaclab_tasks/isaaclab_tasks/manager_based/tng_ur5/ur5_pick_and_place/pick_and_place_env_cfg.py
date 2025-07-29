@@ -25,7 +25,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import RecorderTermCfg, RecorderManagerBaseCfg, RecorderTerm, DatasetExportMode
 import torch
 import datetime
-from omni.physx import get_physx_scene_query_interface
+from isaaclab.envs import ManagerBasedEnv
 
 
 from . import mdp
@@ -33,6 +33,59 @@ from . import mdp
 ##
 # Scene definition
 ##
+
+
+def reset_root_state_uniform_nonoverlap(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict,
+    velocity_range: dict,
+    asset_a: SceneEntityCfg,
+    asset_b: SceneEntityCfg,
+    min_xy_dist: float = 0.15,
+    max_trials: int = 20,
+):
+    """
+    Vectorised rejection sampler that keeps re-randomising the **root
+    states** of `asset_a` (Object) and `asset_b` (Target) until their
+    XY separation is ≥ `min_xy_dist`.
+    """
+    if env_ids is None:
+        env_ids = slice(None)
+    
+    device = env.unwrapped.device
+    env_ids = torch.as_tensor(env_ids, device=device)
+    
+    # Sample asset_a first (this stays fixed)
+    mdp.reset_root_state_uniform(
+        env, env_ids, pose_range, velocity_range, asset_cfg=asset_a
+    )
+    
+    # Now iteratively sample asset_b until no conflicts
+    ids_left = env_ids.clone()
+    
+    for trial in range(max_trials):
+        if len(ids_left) == 0:
+            break
+            
+        # Sample asset_b only for environments that still have conflicts
+        mdp.reset_root_state_uniform(
+            env, ids_left, pose_range, velocity_range, asset_cfg=asset_b
+        )
+        
+        # Check distances for the remaining environments
+        pos_a = env.scene[asset_a.name].data.root_pos_w[ids_left, :2]
+        pos_b = env.scene[asset_b.name].data.root_pos_w[ids_left, :2]
+        dist = torch.linalg.norm(pos_a - pos_b, dim=-1)
+        
+        # Keep only envs that are still too close
+        mask_bad = dist < min_xy_dist
+        ids_left = ids_left[mask_bad]
+    
+    # Fallback for any remaining conflicts
+    if len(ids_left) > 0:
+        env.scene[asset_b.name].data.root_pos_w[ids_left, 0] += min_xy_dist
+        print(f"Applied fallback X-shift to {len(ids_left)} environments")
 
 
 @configclass
@@ -148,34 +201,28 @@ class EventCfg:
     #randomize_actuator_gains
     #randomize_joint_parameters
     #randomize_fixed_tendon_parameters
+    #randomize orientations
 
 
-    reset_object_position = EventTerm(
-        func=mdp.reset_root_state_uniform,
+
+    reset_objects = EventTerm(
+        func=reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
             "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+            "asset_a": SceneEntityCfg("object", body_names="Object"),
+            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
         },
     )
 
-    reset_target_position = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("target_object", body_names="Target"),
-        },
-    )
-
+    #TODO: write custom joint reset with continous offsets per joint
     reset_joints = EventTerm(
         func=mdp.reset_joints_by_scale,
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "position_range": (0.5, 1.5),
+            "position_range": (0.7, 1.3),
             "velocity_range": (0.0, 0.0),
         },
     )
@@ -220,6 +267,11 @@ class TerminationsCfg:
     object_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
     )
+
+    success = DoneTerm(
+        func=mdp.object_reached_goal_and_last_state_reached,
+    )
+
     #TODO: object_goal_reached = DoneTerm(...
 
 
@@ -286,9 +338,9 @@ class ObservationRecorderCfg(RecorderTermCfg):
 class RecorderCfg(RecorderManagerBaseCfg):
     record_observation = ObservationRecorderCfg()
     # where & how to export -------------------------------------------------
-    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
     dataset_filename = "all_obs"
-    dataset_export_mode = DatasetExportMode.EXPORT_ALL
+    dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_FAILED_IN_SEPARATE_FILES
 
 
 @configclass
@@ -296,7 +348,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the pick-and-place environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=2, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=8, env_spacing=5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -312,7 +364,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 5
-        self.episode_length_s = 5.0
+        self.episode_length_s = 10.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
@@ -322,3 +374,5 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
+
+

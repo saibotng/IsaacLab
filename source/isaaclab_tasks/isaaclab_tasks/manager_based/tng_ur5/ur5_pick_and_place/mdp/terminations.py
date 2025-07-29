@@ -51,3 +51,31 @@ def object_reached_goal(
 
     # rewarded if the object is lifted above the threshold
     return distance < threshold
+
+
+def object_reached_goal_and_last_state_reached(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.03,
+    target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Termination condition for the object reaching the goal position.
+
+    Args:
+        env: The environment.
+        command_name: The name of the command that is used to control the object.
+        threshold: The threshold for the object to reach the goal position. Defaults to 0.02.
+        robot_cfg: The robot configuration. Defaults to SceneEntityCfg("robot").
+        object_cfg: The object configuration. Defaults to SceneEntityCfg("object").
+
+    """
+    # extract the used quantities (to enable type-hinting)
+    object: RigidObject = env.scene[object_cfg.name]
+    target: RigidObject = env.scene[target_cfg.name]
+    # distance of the end-effector to the object: (num_envs,)
+    distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
+
+    # rewarded if the object is lifted above the threshold
+    object_at_goal = distance < threshold
+    last_state_reached = env.extras["state"] == 9
+    return object_at_goal & last_state_reached

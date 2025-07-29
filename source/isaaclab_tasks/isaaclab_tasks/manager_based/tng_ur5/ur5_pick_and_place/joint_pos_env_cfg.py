@@ -98,7 +98,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                     max_depenetration_velocity=5.0,
                     disable_gravity=False,
                 ),
-                mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+                mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), metallic=0.2),
             ),
@@ -114,7 +114,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.011], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.055], rot=[1, 0, 0, 0]),
         )
 
         # Listens to the required transforms
