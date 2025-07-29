@@ -25,6 +25,8 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import RecorderTermCfg, RecorderManagerBaseCfg, RecorderTerm, DatasetExportMode
 import torch
 import datetime
+from omni.physx import get_physx_scene_query_interface
+
 
 from . import mdp
 
@@ -35,7 +37,7 @@ from . import mdp
 
 @configclass
 class ObjectTableSceneCfg(InteractiveSceneCfg):
-    """Configuration for the lift scene with a robot and a object.
+    """Configuration for the pick and place scene with a robot and a object.
     This is the abstract base implementation, the exact scene is defined in the derived classes
     which need to set the target object, robot and end-effector frames
     """
@@ -46,6 +48,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     ee_frame: FrameTransformerCfg = MISSING
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
+
+    target_object: RigidObjectCfg | DeformableObjectCfg = MISSING  # for pick and place
 
     # Camera
     camera_global: CameraCfg = MISSING
@@ -141,6 +145,10 @@ class EventCfg:
     """Configuration for events."""
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    #randomize_actuator_gains
+    #randomize_joint_parameters
+    #randomize_fixed_tendon_parameters
+
 
     reset_object_position = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -149,6 +157,26 @@ class EventCfg:
             "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+        },
+    )
+
+    reset_target_position = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("target_object", body_names="Target"),
+        },
+    )
+
+    reset_joints = EventTerm(
+        func=mdp.reset_joints_by_scale,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "position_range": (0.5, 1.5),
+            "velocity_range": (0.0, 0.0),
         },
     )
 
@@ -192,6 +220,7 @@ class TerminationsCfg:
     object_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
     )
+    #TODO: object_goal_reached = DoneTerm(...
 
 
 @configclass
@@ -257,14 +286,14 @@ class ObservationRecorderCfg(RecorderTermCfg):
 class RecorderCfg(RecorderManagerBaseCfg):
     record_observation = ObservationRecorderCfg()
     # where & how to export -------------------------------------------------
-    dataset_export_dir_path = f"/home/luebbet/dev/datasets/lift/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
     dataset_filename = "all_obs"
     dataset_export_mode = DatasetExportMode.EXPORT_ALL
 
 
 @configclass
-class LiftEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the lifting environment."""
+class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
+    """Configuration for the pick-and-place environment."""
 
     # Scene settings
     scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=2, env_spacing=5)

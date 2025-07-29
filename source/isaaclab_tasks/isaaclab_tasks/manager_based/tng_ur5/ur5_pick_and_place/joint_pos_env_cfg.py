@@ -10,8 +10,12 @@ from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from .lift_env_cfg import LiftEnvCfg
+import isaacsim.core.utils.prims as prim_utils
+import isaaclab.sim as sim_utils
+
 from . import mdp
+from .pick_and_place_env_cfg import PickAndPlaceEnvCfg
+
 ##
 # Pre-defined configs
 ##
@@ -21,7 +25,7 @@ from isaaclab.sensors import CameraCfg
 import isaaclab.sim as sim_utils
 
 @configclass
-class UR5CubeLiftEnvCfg(LiftEnvCfg):
+class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -76,7 +80,7 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
             asset_name="robot",
             joint_names=GRIPPER_JOINTS,
             open_command_expr={joint: 0.0 for joint in GRIPPER_JOINTS},
-            close_command_expr={joint: 0.0215 for joint in GRIPPER_JOINTS},
+            close_command_expr={joint: 0.025 for joint in GRIPPER_JOINTS},
         )
         # Set the body name for the end effector
         self.commands.object_pose.body_name = "wrist_3_link"
@@ -84,10 +88,8 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
         # Set Cube as object
         self.scene.object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.055], rot=[1, 0, 0, 0]),
-            spawn=UsdFileCfg(
-                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
-                scale=(0.8, 0.8, 0.8),
+            spawn=sim_utils.CuboidCfg(
+                size=(0.04, 0.04, 0.04),
                 rigid_props=RigidBodyPropertiesCfg(
                     solver_position_iteration_count=16,
                     solver_velocity_iteration_count=1,
@@ -96,7 +98,23 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
                     max_depenetration_velocity=5.0,
                     disable_gravity=False,
                 ),
+                mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), metallic=0.2),
             ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.055], rot=[1, 0, 0, 0]),
+        )
+
+        self.scene.target_object = RigidObjectCfg(
+            prim_path="{ENV_REGEX_NS}/Target",
+            spawn=sim_utils.CuboidCfg(
+                size=(0.1, 0.1, 0.01),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+                mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0), metallic=0.2),
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.011], rot=[1, 0, 0, 0]),
         )
 
         # Listens to the required transforms
@@ -120,7 +138,7 @@ class UR5CubeLiftEnvCfg(LiftEnvCfg):
 
 
 @configclass
-class UR5CubeLiftEnvCfg_PLAY(UR5CubeLiftEnvCfg):
+class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
