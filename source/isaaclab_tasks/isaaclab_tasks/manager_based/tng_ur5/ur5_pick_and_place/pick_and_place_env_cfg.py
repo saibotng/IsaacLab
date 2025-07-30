@@ -142,22 +142,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 ##
 
 
-@configclass
-class CommandsCfg:
-    """Command terms for the MDP."""
-
-    object_pose = mdp.UniformPoseCommandCfg(
-        asset_name="robot",
-        body_name=MISSING,  # will be set by agent env cfg
-        resampling_time_range=(5.0, 5.0),
-        debug_vis=True,
-        ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
-        ),
-    )
-    
-    object_pose.goal_pose_visualizer_cfg.markers["frame"].scale = (0.1e-10, 0.1e-10, 0.1e-10)
-    object_pose.current_pose_visualizer_cfg.markers["frame"].scale = (0.1e-10, 0.1e-10, 0.1e-10)
 
 
 @configclass
@@ -236,18 +220,6 @@ class RewardsCfg:
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=15.0)
 
-    object_goal_tracking = RewTerm(
-        func=mdp.object_goal_distance,
-        params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},
-        weight=16.0,
-    )
-
-    object_goal_tracking_fine_grained = RewTerm(
-        func=mdp.object_goal_distance,
-        params={"std": 0.05, "minimal_height": 0.04, "command_name": "object_pose"},
-        weight=5.0,
-    )
-
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
 
@@ -272,7 +244,6 @@ class TerminationsCfg:
         func=mdp.object_reached_goal_and_last_state_reached,
     )
 
-    #TODO: object_goal_reached = DoneTerm(...
 
 
 @configclass
@@ -352,7 +323,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
+
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()

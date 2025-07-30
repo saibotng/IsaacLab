@@ -82,8 +82,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             open_command_expr={joint: 0.0 for joint in GRIPPER_JOINTS},
             close_command_expr={joint: 0.025 for joint in GRIPPER_JOINTS},
         )
-        # Set the body name for the end effector
-        self.commands.object_pose.body_name = "wrist_3_link"
+    
 
         # Set Cube as object
         self.scene.object = RigidObjectCfg(
