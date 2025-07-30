@@ -3,7 +3,12 @@ from isaaclab.actuators import ImplicitActuatorCfg
 
 from isaaclab.assets.articulation import ArticulationCfg
 import os
-
+import torch
+from isaaclab.envs import ManagerBasedEnv
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.assets import Articulation
+import isaaclab.utils.math as math_utils
+import math
 
 # Constant for the root/base directory of the project (dynamic)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,3 +84,46 @@ UR5_HIGH_PD_CFG.actuators["ur5_shoulder"].stiffness = 200.0
 UR5_HIGH_PD_CFG.actuators["ur5_shoulder"].damping = 80.0
 UR5_HIGH_PD_CFG.actuators["ur5_wrist"].stiffness = 200.0
 UR5_HIGH_PD_CFG.actuators["ur5_wrist"].damping = 80.0
+
+
+
+def reset_joints_by_degree(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    joint_rel_degree_range: tuple[float, float] = (-30.0, 30.0),
+    gripper_abs_m_range: tuple[float, float] = (0.00, 0.04),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    # get default joint state
+    joint_pos = asset.data.default_joint_pos[env_ids, asset_cfg.joint_ids].clone()
+    joint_vel = asset.data.default_joint_vel[env_ids, asset_cfg.joint_ids].clone()
+
+    joint_rel_rad_range = tuple(x / 180 * math.pi for x in joint_rel_degree_range)
+
+    # scale these values randomly
+    joint_pos += math_utils.sample_uniform(*joint_rel_rad_range, joint_pos.shape, joint_pos.device)
+    
+    # normalize joint positions to [-pi, +pi]
+    joint_pos = (joint_pos + math.pi) % (2 * math.pi) - math.pi
+
+    gripper_pos = math_utils.sample_uniform(
+        *gripper_abs_m_range, (len(env_ids)), joint_pos.device
+    )
+    test = joint_pos[:, -2].clone()
+    joint_pos[:, -2] = gripper_pos
+    joint_pos[:, -1] = gripper_pos
+
+    # clamp joint pos to limits
+    joint_pos_limits = asset.data.soft_joint_pos_limits[env_ids, asset_cfg.joint_ids]
+    joint_pos = joint_pos.clamp_(joint_pos_limits[..., 0], joint_pos_limits[..., 1])
+    # clamp joint vel to limits
+
+    # set into the physics simulation
+    asset.write_joint_state_to_sim(
+        joint_pos.view(len(env_ids), -1),
+        joint_vel.view(len(env_ids), -1),
+        env_ids=env_ids,
+        joint_ids=asset_cfg.joint_ids,
+    )

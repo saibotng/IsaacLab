@@ -29,6 +29,7 @@ from isaaclab.envs import ManagerBasedEnv
 
 
 from . import mdp
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 
 ##
 # Scene definition
@@ -199,16 +200,9 @@ class EventCfg:
             "asset_b": SceneEntityCfg("target_object", body_names="Target"),
         },
     )
-
-    #TODO: write custom joint reset with continous offsets per joint
     reset_joints = EventTerm(
-        func=mdp.reset_joints_by_scale,
+        func=reset_joints_by_degree,
         mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "position_range": (0.7, 1.3),
-            "velocity_range": (0.0, 0.0),
-        },
     )
 
 
@@ -319,7 +313,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the pick-and-place environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=8, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1, env_spacing=5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()

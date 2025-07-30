@@ -76,7 +76,7 @@ class PickPlaceSmState:
 class PickPlaceSmWaitTime:
     """Additional wait times (in s) for states for before switching."""
 
-    REST = wp.constant(0.2)
+    REST = wp.constant(0.3)
     APPROACH_ABOVE_OBJECT = wp.constant(1.0)
     APPROACH_OBJECT = wp.constant(0.3)
     GRASP_OBJECT = wp.constant(0.5)
@@ -85,6 +85,7 @@ class PickPlaceSmWaitTime:
     APPROACH_TARGET = wp.constant(0.3)
     RELEASE_OBJECT = wp.constant(0.5)
     RETRACT = wp.constant(0.8)
+
 
 
 @wp.func
@@ -226,9 +227,8 @@ def infer_state_machine(
         # keep the end-effector in the last position
         des_ee_pose[tid] = ee_pose[tid]
         gripper_state[tid] = GripperState.OPEN
-        # do not increment wait time, we are done
         return
-    
+
     # increment wait time
     sm_wait_time[tid] = sm_wait_time[tid] + dt[tid]
 
@@ -373,7 +373,7 @@ def main():
         with torch.inference_mode():
             env.unwrapped.extras["state"] = pick_sm.sm_state
             # step environment
-            dones = env.step(actions)[-2]
+            env.step(actions)[-2]
 
             # observations
             # -- end-effector frame
@@ -396,6 +396,7 @@ def main():
             )
 
             # reset state machine
+            dones = env.unwrapped.termination_manager.terminated
             if dones.any():
                 pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
 
