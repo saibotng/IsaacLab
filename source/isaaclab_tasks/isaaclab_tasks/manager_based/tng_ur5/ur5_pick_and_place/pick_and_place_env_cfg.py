@@ -300,20 +300,27 @@ class ObservationRecorderCfg(RecorderTermCfg):
 
 
 @configclass
-class RecorderCfg(RecorderManagerBaseCfg):
+class RecorderCfg_SM(RecorderManagerBaseCfg):
     record_observation = ObservationRecorderCfg()
     # where & how to export -------------------------------------------------
-    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/record/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
     dataset_filename = "all_obs"
     dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_FAILED_IN_SEPARATE_FILES
 
+@configclass
+class RecorderCfg_Inference(RecorderManagerBaseCfg):
+    record_observation = ObservationRecorderCfg()
+    # where & how to export -------------------------------------------------
+    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/inference/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_filename = "all_obs"
+    dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_FAILED_IN_SEPARATE_FILES
 
 @configclass
 class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the pick-and-place environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=8, env_spacing=5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -323,7 +330,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
-    recorders: RecorderCfg = RecorderCfg()
+    recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
 
     def __post_init__(self):
         """Post initialization."""

@@ -7,6 +7,7 @@ from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsA
 from isaaclab.utils import configclass
 
 from . import joint_pos_env_cfg
+from .pick_and_place_env_cfg import RecorderCfg_Inference
 
 ##
 # Pre-defined configs
@@ -37,11 +38,12 @@ class UR5CubePickAndPlaceEnvCfg(joint_pos_env_cfg.UR5CubePickAndPlaceEnvCfg):
 
 @configclass
 class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
+    recorders = RecorderCfg_Inference()
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
         # make a smaller scene for play
-        self.scene.num_envs = 50
-        self.scene.env_spacing = 2.5
+        self.scene.num_envs = 1
+        self.scene.env_spacing = 5.0
         # disable randomization for play
         self.observations.policy.enable_corruption = False
