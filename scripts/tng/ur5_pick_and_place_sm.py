@@ -342,13 +342,13 @@ class PickAndPlaceSm:
 def main():
     # parse configuration
     env_cfg: PickAndPlaceEnvCfg = parse_env_cfg(
-        "TNG-Pick-And-Place-Cube-UR5-IK-Abs-v0",
+        "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0",
         device=args_cli.device,
         num_envs=args_cli.num_envs,
         use_fabric=not args_cli.disable_fabric,
     )
     # create environment
-    env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-v0", cfg=env_cfg)
+    env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
     # reset environment at start
     env.reset()
 

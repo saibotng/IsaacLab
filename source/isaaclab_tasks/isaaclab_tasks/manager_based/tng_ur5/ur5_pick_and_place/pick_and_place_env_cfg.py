@@ -30,7 +30,12 @@ from isaaclab.envs import ManagerBasedEnv
 
 from . import mdp
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
+import os
+from dotenv import load_dotenv
 
+load_dotenv()  # loads variables from .env into os.environ
+
+DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 ##
 # Scene definition
 ##
@@ -303,7 +308,7 @@ class ObservationRecorderCfg(RecorderTermCfg):
 class RecorderCfg_SM(RecorderManagerBaseCfg):
     record_observation = ObservationRecorderCfg()
     # where & how to export -------------------------------------------------
-    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/record/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_export_dir_path = f"{DATASET_BASE_DIR}/pick_and_place/record/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
     dataset_filename = "all_obs"
     dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_FAILED_IN_SEPARATE_FILES
 
@@ -311,7 +316,7 @@ class RecorderCfg_SM(RecorderManagerBaseCfg):
 class RecorderCfg_Inference(RecorderManagerBaseCfg):
     record_observation = ObservationRecorderCfg()
     # where & how to export -------------------------------------------------
-    dataset_export_dir_path = f"/home/luebbet/dev/datasets/pick_and_place/inference/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
+    dataset_export_dir_path = f"{DATASET_BASE_DIR}/pick_and_place/inference/{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}"     # default: /tmp/isaaclab/logs
     dataset_filename = "all_obs"
     dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_FAILED_IN_SEPARATE_FILES
 
