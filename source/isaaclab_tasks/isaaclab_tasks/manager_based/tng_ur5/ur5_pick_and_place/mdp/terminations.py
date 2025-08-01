@@ -21,9 +21,7 @@ from isaaclab.utils.math import combine_frame_transforms
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
-
-
-def object_reached_goal_and_last_state_reached(
+def object_reached_goal(
     env: ManagerBasedRLEnv,
     threshold: float = 0.03,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
@@ -46,6 +44,19 @@ def object_reached_goal_and_last_state_reached(
     distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
 
     # rewarded if the object is lifted above the threshold
-    object_at_goal = distance < threshold
+    return distance < threshold
+
+def object_reached_goal_and_last_state_reached(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.03,
+    target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+
+    object_at_goal = object_reached_goal(env, threshold, target_cfg, object_cfg)
     last_state_reached = env.extras["state"] == 9
     return object_at_goal & last_state_reached
+
+
+
+

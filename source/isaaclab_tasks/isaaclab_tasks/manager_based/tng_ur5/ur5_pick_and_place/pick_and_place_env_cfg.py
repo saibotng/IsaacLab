@@ -184,7 +184,7 @@ class ObservationsCfg:
 
 
 @configclass
-class EventCfg:
+class EventCfg_SM:
     """Configuration for events."""
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
@@ -210,6 +210,23 @@ class EventCfg:
         mode="reset",
     )
 
+@configclass
+class EventCfg_Inference:
+    """Configuration for events."""
+
+    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+
+    reset_objects = EventTerm(
+        func=reset_root_state_uniform_nonoverlap,
+        mode="reset",
+        params={
+            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
+            "velocity_range": {},
+            "asset_a": SceneEntityCfg("object", body_names="Object"),
+            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
+        },
+    )
+
 
 @configclass
 class RewardsCfg:
@@ -230,7 +247,7 @@ class RewardsCfg:
 
 
 @configclass
-class TerminationsCfg:
+class TerminationsCfg_SM:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
@@ -242,6 +259,21 @@ class TerminationsCfg:
     success = DoneTerm(
         func=mdp.object_reached_goal_and_last_state_reached,
     )
+
+@configclass
+class TerminationsCfg_Inference:
+    """Termination terms for the MDP."""
+
+    time_out = DoneTerm(func=mdp.time_out, time_out=True)
+
+    object_dropping = DoneTerm(
+        func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
+    )
+
+    success = DoneTerm(
+        func=mdp.object_reached_goal,
+    )
+
 
 
 
@@ -332,8 +364,8 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
 
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    events: EventCfg = EventCfg()
+    terminations = TerminationsCfg_SM()
+    events = EventCfg_SM()
     curriculum: CurriculumCfg = CurriculumCfg()
     recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
 

@@ -14,7 +14,7 @@ import isaacsim.core.utils.prims as prim_utils
 import isaaclab.sim as sim_utils
 
 from . import mdp
-from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference
+from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference
 
 ##
 # Pre-defined configs
@@ -139,6 +139,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
 @configclass
 class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
     recorders = RecorderCfg_Inference()
+    events = EventCfg_Inference()
+    terminations = TerminationsCfg_Inference()
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
