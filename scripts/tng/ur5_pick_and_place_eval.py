@@ -1,5 +1,5 @@
 """
-Evaluate a fine‑tuned Robotic Foundation Model (RFM) on the joint‑level
+Evaluate a fine‑tuned Robotic Foundation Model (RFM) on the joint‑level
 *TNG‑Pick‑And‑Place‑Cube‑UR5‑IK‑Abs‑Play‑v0* environment.
 
 Changes compared to the previous draft
@@ -8,7 +8,7 @@ Changes compared to the previous draft
   dispatched **only after** the robot has reached (within a configurable
   tolerance) the current target.  This guarantees the arm settles on each
   waypoint before progressing through the RFM‑predicted chunk.
-* Added CLI flag ``--joint_tol`` (default ``0.02`` rad or meters for
+* Added CLI flag ``--joint_tol`` (default ``0.02`` rad or meters for
   prismatic joints).
 * Lightweight helper ``extract_joint_pos`` tries common access patterns
   to read joint positions from the environment.  Adjust as needed for
@@ -18,17 +18,39 @@ Assumptions & integration points are unchanged – replace ``load_rfm``
 with your actual model loader.
 """
 
-from __future__ import annotations
+
+
 
 import argparse
+
+from isaaclab.app import AppLauncher
+parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
+parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
+parser.add_argument("--chunk_size", type=int, default=8, help="Future horizon K that RFM outputs")
+parser.add_argument("--joint_tol", type=float, default=0.02, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
+parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
+# AppLauncher CLI
+AppLauncher.add_app_launcher_args(parser)
+# parse the arguments
+args = parser.parse_args()
+
+# launch omniverse app
+app_launcher = AppLauncher(args)
+simulation_app = app_launcher.app
+
+# ------------------------------------------------------------------
+# Build environment
+# ------------------------------------------------------------------
+
+
 import importlib
 from pathlib import Path
 from typing import Tuple
 
 import gymnasium as gym
 import torch
-
-from isaaclab.app import AppLauncher
+from isaaclab_tasks.utils.parse_cfg import parse_env_cfg  # deferred import
 
 # -----------------------------------------------------------------------------
 # Utilities
@@ -43,6 +65,7 @@ def load_rfm(rfm_id: str, device: torch.device) -> "callable":
     * Must return a **callable** that maps ``(N, *obs_shape) -> (N, K,
       action_dim)`` with contiguous tensors on *device*.
     """
+    return None
     module_path, _, attr = rfm_id.partition(":")
 
     if attr:  # dotted import like "my_pkg.models.rfm:RFMPolicy"
@@ -62,25 +85,11 @@ def load_rfm(rfm_id: str, device: torch.device) -> "callable":
 
     return rfm
 
-
-def extract_joint_pos(env: gym.Env, obs: torch.Tensor, num_joints: int) -> torch.Tensor:
-    """Best‑effort extraction of joint positions from *obs* or the env.
-
-    1. Try the observation vector (assumes first ``num_joints`` entries).
-    2. Try Isaac Lab scene graph: ``env.unwrapped.scene["robot"].data.q``.
-
-    Modify this function if your observation packing differs.
-    """
-    # 1. Heuristic: first *num_joints* values of obs are joint positions.
-    if obs.shape[-1] >= num_joints:
-        return obs[:, :num_joints]
-
-    # 2. Scene graph fallback (ArticulationData.q).
-    try:
-        q = env.unwrapped.scene["robot"].data.q  # shape (num_envs, num_joints)
-        return q
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError("Cannot extract joint positions — please adapt `extract_joint_pos`.\n" + str(exc))
+def reset_rfm(done_ids: torch.Tensor):
+    """Reset the RFM state for the given envs."""
+    # This is a no-op in this example, but you can implement
+    # RFM-specific reset logic here if needed.
+    pass
 
 
 class ActionBuffer:
@@ -135,28 +144,6 @@ class ActionBuffer:
 # -----------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
-    parser.add_argument("--rfm", required=True, help="Path/module of the RFM to load")
-    parser.add_argument("--chunk_size", type=int, default=8, help="Future horizon K that RFM outputs")
-    parser.add_argument("--joint_tol", type=float, default=0.02, help="Joint convergence tolerance (rad/m)")
-    parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
-    parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
-    # AppLauncher CLI
-    AppLauncher.add_app_launcher_args(parser)
-
-    args = parser.parse_args(argv)
-
-    # ------------------------------------------------------------------
-    # Launch Omniverse / Isaac Sim
-    # ------------------------------------------------------------------
-    app_launcher = AppLauncher(args)
-    simulation_app = app_launcher.app
-
-    # ------------------------------------------------------------------
-    # Build environment
-    # ------------------------------------------------------------------
-    from isaaclab_tasks.utils.parse_cfg import parse_env_cfg  # deferred import
-
     env_cfg = parse_env_cfg(
         "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0",
         device=args.device,
@@ -188,7 +175,7 @@ def main(argv: list[str] | None = None) -> None:
             refill_mask = buffer.needs_refill()
             if refill_mask.any():
                 # Call RFM for the **entire batch** (simpler; slice if expensive)
-                new_chunk = rfm(obs)[..., : args.chunk_size, :]
+                new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)#rfm(obs)[..., : args.chunk_size, :]
                 if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
                     raise ValueError(
                         "RFM returned shape {} — expected {}".format(
@@ -207,7 +194,7 @@ def main(argv: list[str] | None = None) -> None:
             # ------------------------------------------------------------------
             # (3) Measure convergence & advance targets
             # ------------------------------------------------------------------
-            q = extract_joint_pos(env, obs, action_dim)
+            q = obs['joints']['joint_pos']
             err = torch.abs(q - buffer.actions).max(dim=-1).values  # shape (N,)
             reached = err < args.joint_tol
             buffer.update_targets(reached)
@@ -216,9 +203,7 @@ def main(argv: list[str] | None = None) -> None:
             # (4) Handle resets
             # ------------------------------------------------------------------
             if done_mask.any():
-                obs_reset, _ = env.reset(done_mask.nonzero(as_tuple=False).squeeze(-1))
-                obs[done_mask] = obs_reset
-                buffer.mark_done(done_mask)
+                reset_rfm(done_mask.nonzero(as_tuple=False).squeeze(-1))
 
     # ------------------------------------------------------------------
     # Clean shutdown

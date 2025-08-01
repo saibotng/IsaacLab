@@ -55,7 +55,11 @@ def object_reached_goal_and_last_state_reached(
 
     object_at_goal = object_reached_goal(env, threshold, target_cfg, object_cfg)
     last_state_reached = env.extras["state"] == 9
-    return object_at_goal & last_state_reached
+    done = object_at_goal & last_state_reached
+    if done.sum() > 0:
+        print(f"Object reached goal and last state reached: {done.sum().item()} envs out of {env.scene.num_envs}.")
+
+    return done
 
 
 

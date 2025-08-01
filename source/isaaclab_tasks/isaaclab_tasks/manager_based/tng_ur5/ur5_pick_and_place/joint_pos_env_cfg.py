@@ -71,16 +71,18 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             ),
         )
 
+
+
+
         # Set actions for the specific robot type (UR5)
         self.actions.arm_action = mdp.JointPositionActionCfg(
-            asset_name="robot", joint_names=ARM_JOINTS, scale=0.5, use_default_offset=True
+            asset_name="robot", joint_names=ARM_JOINTS, scale=1.0, use_default_offset=False
         )
+
+
         # Set gripper actions for each joint in GRIPPER_JOINTS
-        self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
-            asset_name="robot",
-            joint_names=GRIPPER_JOINTS,
-            open_command_expr={joint: 0.0 for joint in GRIPPER_JOINTS},
-            close_command_expr={joint: 0.025 for joint in GRIPPER_JOINTS},
+        self.actions.gripper_action = mdp.JointPositionActionCfg(
+            asset_name="robot", joint_names=GRIPPER_JOINTS, scale=1.0, use_default_offset=False
         )
     
 

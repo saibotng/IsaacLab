@@ -8,11 +8,12 @@ from isaaclab.utils import configclass
 
 from . import joint_pos_env_cfg
 from .pick_and_place_env_cfg import RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference
+from . import mdp
 
 ##
 # Pre-defined configs
 ##
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_HIGH_PD_CFG, ARM_JOINTS  # isort: skip
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_HIGH_PD_CFG, ARM_JOINTS, GRIPPER_JOINTS  # isort: skip
 
 
 @configclass
@@ -33,6 +34,12 @@ class UR5CubePickAndPlaceEnvCfg(joint_pos_env_cfg.UR5CubePickAndPlaceEnvCfg):
             controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
             scale=0.5,
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=[0.0, 0.0, 0.18]),
+        )
+        self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
+            asset_name="robot",
+            joint_names=GRIPPER_JOINTS,
+            open_command_expr={joint: 0.0 for joint in GRIPPER_JOINTS},
+            close_command_expr={joint: 0.025 for joint in GRIPPER_JOINTS},
         )
 
 

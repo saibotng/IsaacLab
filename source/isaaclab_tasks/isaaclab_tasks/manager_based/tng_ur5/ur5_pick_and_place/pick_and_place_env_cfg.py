@@ -41,59 +41,6 @@ DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 ##
 
 
-def reset_root_state_uniform_nonoverlap(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor,
-    pose_range: dict,
-    velocity_range: dict,
-    asset_a: SceneEntityCfg,
-    asset_b: SceneEntityCfg,
-    min_xy_dist: float = 0.15,
-    max_trials: int = 20,
-):
-    """
-    Vectorised rejection sampler that keeps re-randomising the **root
-    states** of `asset_a` (Object) and `asset_b` (Target) until their
-    XY separation is ≥ `min_xy_dist`.
-    """
-    if env_ids is None:
-        env_ids = slice(None)
-    
-    device = env.unwrapped.device
-    env_ids = torch.as_tensor(env_ids, device=device)
-    
-    # Sample asset_a first (this stays fixed)
-    mdp.reset_root_state_uniform(
-        env, env_ids, pose_range, velocity_range, asset_cfg=asset_a
-    )
-    
-    # Now iteratively sample asset_b until no conflicts
-    ids_left = env_ids.clone()
-    
-    for trial in range(max_trials):
-        if len(ids_left) == 0:
-            break
-            
-        # Sample asset_b only for environments that still have conflicts
-        mdp.reset_root_state_uniform(
-            env, ids_left, pose_range, velocity_range, asset_cfg=asset_b
-        )
-        
-        # Check distances for the remaining environments
-        pos_a = env.scene[asset_a.name].data.root_pos_w[ids_left, :2]
-        pos_b = env.scene[asset_b.name].data.root_pos_w[ids_left, :2]
-        dist = torch.linalg.norm(pos_a - pos_b, dim=-1)
-        
-        # Keep only envs that are still too close
-        mask_bad = dist < min_xy_dist
-        ids_left = ids_left[mask_bad]
-    
-    # Fallback for any remaining conflicts
-    if len(ids_left) > 0:
-        env.scene[asset_b.name].data.root_pos_w[ids_left, 0] += min_xy_dist
-        print(f"Applied fallback X-shift to {len(ids_left)} environments")
-
-
 @configclass
 class ObjectTableSceneCfg(InteractiveSceneCfg):
     """Configuration for the pick and place scene with a robot and a object.
@@ -196,7 +143,7 @@ class EventCfg_SM:
 
 
     reset_objects = EventTerm(
-        func=reset_root_state_uniform_nonoverlap,
+        func= mdp.reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
             "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
@@ -217,7 +164,7 @@ class EventCfg_Inference:
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
     reset_objects = EventTerm(
-        func=reset_root_state_uniform_nonoverlap,
+        func=mdp.reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
             "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
