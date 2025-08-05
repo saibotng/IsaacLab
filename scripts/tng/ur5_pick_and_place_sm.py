@@ -24,6 +24,20 @@ parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+
+parser.add_argument(
+    "--renderer",
+    type=str,
+    default="PathTracing",
+    choices=["RayTracedLighting", "PathTracing"],
+    help="Renderer to use.",
+)
+parser.add_argument(
+    "--samples_per_pixel_per_frame",
+    type=int,
+    default=1,
+    help="Number of samples per pixel per frame.",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments

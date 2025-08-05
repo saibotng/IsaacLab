@@ -30,6 +30,20 @@ parser.add_argument("--chunk_size", type=int, default=8, help="Future horizon K 
 parser.add_argument("--joint_tol", type=float, default=0.02, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
+
+parser.add_argument(
+    "--renderer",
+    type=str,
+    default="PathTracing",
+    choices=["RayTracedLighting", "PathTracing"],
+    help="Renderer to use.",
+)
+parser.add_argument(
+    "--samples_per_pixel_per_frame",
+    type=int,
+    default=1,
+    help="Number of samples per pixel per frame.",
+)
 # AppLauncher CLI
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments

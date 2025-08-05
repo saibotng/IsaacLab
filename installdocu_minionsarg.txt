@@ -1,0 +1,28 @@
+this worked for setting up the repo with minionsarg and RTX 5090 (Driver: 575 open, Cuda: 12.9):
+
+IsaacSim 4.5 (which is used by the latest version of IsaacLab has compatibility issues with 50xx GPUs as described here: https://github.com/isaac-sim/IsaacLab/issues/2188)
+We use the fix proposed by user Nate177
+
+when in the repos base dir:
+-> first build and activate a python 3.10 venv, then follow this guide: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/pip_installation.html
+-> then do:
+
+
+pip uninstall -y torch torchvision torchaudio11 
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+
+"""
+parser.add_argument(
+    "--renderer",
+    type=str,
+    default="PathTracing",
+    choices=["RayTracedLighting", "PathTracing"],
+    help="Renderer to use.",
+)
+parser.add_argument(
+    "--samples_per_pixel_per_frame",
+    type=int,
+    default=1,
+    help="Number of samples per pixel per frame.",
+)
+"""
