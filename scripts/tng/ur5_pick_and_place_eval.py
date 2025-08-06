@@ -252,6 +252,7 @@ class ActionBuffer:
     """Chunked action buffer with *reach‑to‑advance* gating."""
 
     def __init__(self, num_envs: int, chunk_size: int, action_dim: int, device: torch.device):
+        self.num_envs = num_envs
         self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
         self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)  # forces refill
         self.chunk_size = chunk_size
@@ -290,6 +291,13 @@ class ActionBuffer:
     def mark_done(self, done_ids: torch.Tensor):
         """On env reset, invalidate its chunk so it is refilled next step."""
         self.ptr[done_ids] = self.chunk_size  # will trigger needs_refill()
+        
+    def reset(self, done_mask: torch.Tensor):
+        """Reset the buffer for done environments only."""
+        # Reset buffer for done environments
+        self.buffer[done_mask] = 0
+        # Force refill only for done environments on next step
+        self.last_action_reached[done_mask] = True
 
     @property
     def actions(self) -> torch.Tensor:
@@ -391,6 +399,7 @@ def main(argv: list[str] | None = None) -> None:
             # ------------------------------------------------------------------
             if done_mask.any():
                 reset_rfm(done_mask.nonzero(as_tuple=False).squeeze(-1))
+                buffer.reset(done_mask)
                 env.reset()
 
     # ------------------------------------------------------------------

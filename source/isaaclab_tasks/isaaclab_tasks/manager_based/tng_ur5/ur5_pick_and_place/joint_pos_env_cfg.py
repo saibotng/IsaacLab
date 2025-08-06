@@ -140,7 +140,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
 
 @configclass
 class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
-    recorders = RecorderCfg_Inference()
+    recorders = None#RecorderCfg_Inference()
     events = EventCfg_Inference()
     terminations = TerminationsCfg_Inference()
     def __post_init__(self):
