@@ -12,6 +12,26 @@ parser = argparse.ArgumentParser(
     description="This script demonstrates adding a custom robot to an Isaac Lab environment."
 )
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to spawn.")
+parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
+
+# Parse args first to check if renderer should be enabled
+temp_args, _ = parser.parse_known_args()
+
+# Conditionally add renderer arguments
+if temp_args.blackwell:
+    parser.add_argument(
+        "--renderer",
+        type=str,
+        default="PathTracing",
+        choices=["RayTracedLighting", "PathTracing"],
+        help="Renderer to use.",
+    )
+    parser.add_argument(
+        "--samples_per_pixel_per_frame",
+        type=int,
+        default=1,
+        help="Number of samples per pixel per frame.",
+    )
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments

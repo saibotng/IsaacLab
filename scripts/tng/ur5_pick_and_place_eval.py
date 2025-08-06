@@ -17,7 +17,134 @@ Changes compared to the previous draft
 Assumptions & integration points are unchanged – replace ``load_rfm``
 with your actual model loader.
 """
+from typing import Any, Dict, Optional, Union
+from pydantic import BaseModel
+from abc import ABC, abstractmethod
+import zmq
+from io import BytesIO
+import numpy as np
+import torch
 
+class ModalityConfig(BaseModel):
+    """Configuration for a modality."""
+
+    delta_indices: list[int]
+    """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""
+    modality_keys: list[str]
+    """The keys to load for the modality in the dataset."""
+
+
+class BasePolicy(ABC):
+    @abstractmethod
+    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Abstract method to get the action for a given state.
+
+        Args:
+            observations: The observations from the environment.
+
+        Returns:
+            The action to take in the environment in dictionary format.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_modality_config(self) -> Dict[str, ModalityConfig]:
+        """
+        Return the modality config of the policy.
+        """
+        raise NotImplementedError
+
+class TorchSerializer:
+    @staticmethod
+    def to_bytes(data: dict) -> bytes:
+        buffer = BytesIO()
+        torch.save(data, buffer)
+        return buffer.getvalue()
+
+    @staticmethod
+    def from_bytes(data: bytes) -> dict:
+        buffer = BytesIO(data)
+        obj = torch.load(buffer, weights_only=False)
+        return obj
+    
+class BaseInferenceClient:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 5555,
+        timeout_ms: int = 15000,
+        api_token: str = None,
+    ):
+        self.context = zmq.Context()
+        self.host = host
+        self.port = port
+        self.timeout_ms = timeout_ms
+        self.api_token = api_token
+        self._init_socket()
+
+    def _init_socket(self):
+        """Initialize or reinitialize the socket with current settings"""
+        self.socket = self.context.socket(zmq.REQ)
+        self.socket.connect(f"tcp://{self.host}:{self.port}")
+
+    def ping(self) -> bool:
+        try:
+            self.call_endpoint("ping", requires_input=False)
+            return True
+        except zmq.error.ZMQError:
+            self._init_socket()  # Recreate socket for next attempt
+            return False
+
+    def kill_server(self):
+        """
+        Kill the server.
+        """
+        self.call_endpoint("kill", requires_input=False)
+
+    def call_endpoint(
+        self, endpoint: str, data: dict | None = None, requires_input: bool = True
+    ) -> dict:
+        """
+        Call an endpoint on the server.
+
+        Args:
+            endpoint: The name of the endpoint.
+            data: The input data for the endpoint.
+            requires_input: Whether the endpoint requires input data.
+        """
+        request: dict = {"endpoint": endpoint}
+        if requires_input:
+            request["data"] = data
+        if self.api_token:
+            request["api_token"] = self.api_token
+
+        self.socket.send(TorchSerializer.to_bytes(request))
+        message = self.socket.recv()
+        response = TorchSerializer.from_bytes(message)
+
+        if "error" in response:
+            raise RuntimeError(f"Server error: {response['error']}")
+        return response
+
+    def __del__(self):
+        """Cleanup resources on destruction"""
+        self.socket.close()
+        self.context.term()
+
+class RobotInferenceClient(BaseInferenceClient, BasePolicy):
+    """
+    Client for communicating with the RealRobotServer
+    """
+
+    def __init__(self, host: str = "localhost", port: int = 5555, api_token: str = None):
+        super().__init__(host=host, port=port, api_token=api_token)
+
+    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+        return self.call_endpoint("get_action", observations)
+
+    def get_modality_config(self) -> Dict[str, ModalityConfig]:
+        return self.call_endpoint("get_modality_config", requires_input=False)
 
 
 
@@ -25,25 +152,32 @@ import argparse
 
 from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
-parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
-parser.add_argument("--chunk_size", type=int, default=8, help="Future horizon K that RFM outputs")
-parser.add_argument("--joint_tol", type=float, default=0.0001, help="Joint convergence tolerance (rad/m)")
+#parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
+parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
+parser.add_argument("--joint_tol", type=float, default=0.005, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
 
-parser.add_argument(
-    "--renderer",
-    type=str,
-    default="PathTracing",
-    choices=["RayTracedLighting", "PathTracing"],
-    help="Renderer to use.",
-)
-parser.add_argument(
-    "--samples_per_pixel_per_frame",
-    type=int,
-    default=1,
-    help="Number of samples per pixel per frame.",
-)
+parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
+
+# Parse args first to check if renderer should be enabled
+temp_args, _ = parser.parse_known_args()
+
+# Conditionally add renderer arguments
+if temp_args.blackwell:
+    parser.add_argument(
+        "--renderer",
+        type=str,
+        default="PathTracing",
+        choices=["RayTracedLighting", "PathTracing"],
+        help="Renderer to use.",
+    )
+    parser.add_argument(
+        "--samples_per_pixel_per_frame",
+        type=int,
+        default=1,
+        help="Number of samples per pixel per frame.",
+    )
 # AppLauncher CLI
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -61,43 +195,21 @@ simulation_app = app_launcher.app
 import importlib
 from pathlib import Path
 from typing import Tuple
+import sys
 
 import gymnasium as gym
 import torch
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg  # deferred import
+import time
+
+
+
+TASK_DESCRIPTION = "Pick up the red cube and place it on the green area"
 
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
 
-def load_rfm(rfm_id: str, device: torch.device) -> "callable":
-    """Load the RFM and move it to *device*.
-
-    * Accepts either ``path/to/checkpoint.pt`` (expects a ``dict`` with a
-      ``"model"`` key *or* a standalone ``nn.Module``), **or** a dotted
-      Python import path optionally followed by ``:attribute``.
-    * Must return a **callable** that maps ``(N, *obs_shape) -> (N, K,
-      action_dim)`` with contiguous tensors on *device*.
-    """
-    return None
-    module_path, _, attr = rfm_id.partition(":")
-
-    if attr:  # dotted import like "my_pkg.models.rfm:RFMPolicy"
-        module = importlib.import_module(module_path)
-        rfm = getattr(module, attr)
-    else:  # assume checkpoint
-        checkpoint = torch.load(rfm_id, map_location=device)
-        rfm = checkpoint["model"] if isinstance(checkpoint, dict) else checkpoint
-
-    if not callable(rfm):
-        raise TypeError("Loaded RFM is not callable — please wrap it or implement __call__.")
-
-    try:
-        rfm.to(device)  # type: ignore[attr-defined]
-    except AttributeError:
-        pass  # Not an nn.Module → ignore
-
-    return rfm
 
 def reset_rfm(done_ids: torch.Tensor):
     """Reset the RFM state for the given envs."""
@@ -105,6 +217,36 @@ def reset_rfm(done_ids: torch.Tensor):
     # RFM-specific reset logic here if needed.
     pass
 
+def request_rfm_server(env_obs: dict) -> None:
+        rfm_obs = {
+            "video.camera_wrist": env_obs["cameras"][:, :, 3:].cpu().unsqueeze(0).numpy(),
+            "video.camera_global": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
+            "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
+            "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
+            "annotation.human.action.task_description": [TASK_DESCRIPTION],
+        }
+        action = zmq_client_call(rfm_obs)
+
+        for key, value in action.items():
+            print(f"Action: {key}: {value.shape}")
+
+        gripper_arr = np.stack([action["action.gripper"], action["action.gripper"]], axis=1)
+        arm_arr = action["action.robot_arm"]
+        action_arr = np.concatenate([arm_arr, gripper_arr], axis=1)
+        action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+        return action_chunk
+
+def zmq_client_call(obs: dict):
+    policy_client = RobotInferenceClient(host="localhost", port=5555, api_token=None)
+
+    print("Available modality config available:")
+    modality_configs = policy_client.get_modality_config()
+    print(modality_configs.keys())
+
+    time_start = time.time()
+    action = policy_client.get_action(obs)
+    print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
+    return action
 
 class ActionBuffer:
     """Chunked action buffer with *reach‑to‑advance* gating."""
@@ -177,7 +319,7 @@ def main(argv: list[str] | None = None) -> None:
     # ------------------------------------------------------------------
     # Instantiate helpers
     # ------------------------------------------------------------------
-    rfm = load_rfm(args.rfm, device)
+    #rfm = load_rfm(args.rfm, device)
     buffer = ActionBuffer(num_envs, args.chunk_size, action_dim, device)
 
     # ------------------------------------------------------------------
@@ -197,23 +339,15 @@ def main(argv: list[str] | None = None) -> None:
                 new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)
                 
                 for env_idx in range(num_envs):
+                    
                     if refill_mask[env_idx]:
-                        start_pos = torch.tensor([0.0, -1.712, 1.712, -1.712, -1.571, 0.0, 0.0, 0.0], device=device)
-                        
-                        joint_deltas = torch.tensor([
-                            [0.15, 0.08, -0.05, 0.06, 0.04, 0.02, 0.01, 0.005],    # Step 1
-                            [0.25, 0.12, -0.08, 0.09, 0.06, 0.03, 0.015, 0.008],   # Step 2
-                            [0.30, 0.15, -0.10, 0.12, 0.08, 0.04, 0.02, 0.01],     # Step 3
-                            [0.32, 0.18, -0.12, 0.15, 0.10, 0.05, 0.025, 0.012],   # Step 4
-                            [0.30, 0.20, -0.15, 0.16, 0.15, 0.051, 0.027, 0.013],   # Step 5
-                            [0.45, 0.23, -0.20, 0.17, 0.17, 0.055, 0.030, 0.020],  # Step 6
-                            [0.48, 0.29, -0.26, 0.20, 0.18, 0.056, 0.031, 0.026],  # Step 7
-                            [0.50, 0.30, -0.30, 0.24, 0.20, 0.060, 0.038, 0.030],  # Step 8
-                        ], device=device)
-                        
-                        # Generate cumulative positions
-                        for step in range(args.chunk_size):
-                            new_chunk[env_idx, step] = start_pos + joint_deltas[step]
+                        env_obs = {
+                            "cameras": obs["cameras"][env_idx],
+                            "joints": obs["joints"]["joint_pos"][env_idx],
+                        }
+
+                        new_chunk[env_idx] = request_rfm_server(env_obs)  # (K, action_dim)
+
                     else:
                         # For envs that don't need refill, copy current chunk
                         new_chunk[env_idx] = buffer.buffer[env_idx]
@@ -257,6 +391,7 @@ def main(argv: list[str] | None = None) -> None:
             # ------------------------------------------------------------------
             if done_mask.any():
                 reset_rfm(done_mask.nonzero(as_tuple=False).squeeze(-1))
+                env.reset()
 
     # ------------------------------------------------------------------
     # Clean shutdown
