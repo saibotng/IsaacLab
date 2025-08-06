@@ -149,5 +149,6 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         # make a smaller scene for play
         self.scene.num_envs = 1
         self.scene.env_spacing = 5
+        self.episode_length_s = 60.0
         # disable randomization for play
         self.observations.joints.enable_corruption = False

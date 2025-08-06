@@ -27,7 +27,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
 parser.add_argument("--chunk_size", type=int, default=8, help="Future horizon K that RFM outputs")
-parser.add_argument("--joint_tol", type=float, default=0.02, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--joint_tol", type=float, default=0.0001, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
 
@@ -115,14 +115,15 @@ class ActionBuffer:
         self.chunk_size = chunk_size
         self.action_dim = action_dim
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
+        self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)  # initially all need refill
 
     # ------------------------------------------------------------------
     # High‑level API
     # ------------------------------------------------------------------
     def needs_refill(self) -> torch.Tensor:
         """Boolean mask of envs whose chunk has been fully consumed."""
-        return self.ptr >= self.chunk_size
-
+        return self.last_action_reached
+ 
     def refill(self, new_chunk: torch.Tensor):
         """Overwrite buffer and reset pointers."""
         if new_chunk.shape != self.buffer.shape:
@@ -137,6 +138,7 @@ class ActionBuffer:
     def update_targets(self, reached_mask: torch.Tensor):
         """Advance to the **next** waypoint *only* for envs that reached the current one."""
         can_advance = reached_mask & (self.ptr < self.chunk_size - 1)
+        self.last_action_reached = reached_mask & (self.ptr == self.chunk_size - 1)
         if can_advance.any():
             self.ptr[can_advance] += 1
             # Gather next target
@@ -188,14 +190,51 @@ def main(argv: list[str] | None = None) -> None:
             # ------------------------------------------------------------------
             refill_mask = buffer.needs_refill()
             if refill_mask.any():
-                # Call RFM for the **entire batch** (simpler; slice if expensive)
-                new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)#rfm(obs)[..., : args.chunk_size, :]
+                # Generate a realistic action chunk for demonstration
+                # Starting from current joint positions
+                
+                # Define a smooth trajectory for 8 steps
+                new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)
+                
+                for env_idx in range(num_envs):
+                    if refill_mask[env_idx]:
+                        start_pos = torch.tensor([0.0, -1.712, 1.712, -1.712, -1.571, 0.0, 0.0, 0.0], device=device)
+                        
+                        joint_deltas = torch.tensor([
+                            [0.15, 0.08, -0.05, 0.06, 0.04, 0.02, 0.01, 0.005],    # Step 1
+                            [0.25, 0.12, -0.08, 0.09, 0.06, 0.03, 0.015, 0.008],   # Step 2
+                            [0.30, 0.15, -0.10, 0.12, 0.08, 0.04, 0.02, 0.01],     # Step 3
+                            [0.32, 0.18, -0.12, 0.15, 0.10, 0.05, 0.025, 0.012],   # Step 4
+                            [0.30, 0.20, -0.15, 0.16, 0.15, 0.051, 0.027, 0.013],   # Step 5
+                            [0.45, 0.23, -0.20, 0.17, 0.17, 0.055, 0.030, 0.020],  # Step 6
+                            [0.48, 0.29, -0.26, 0.20, 0.18, 0.056, 0.031, 0.026],  # Step 7
+                            [0.50, 0.30, -0.30, 0.24, 0.20, 0.060, 0.038, 0.030],  # Step 8
+                        ], device=device)
+                        
+                        # Generate cumulative positions
+                        for step in range(args.chunk_size):
+                            new_chunk[env_idx, step] = start_pos + joint_deltas[step]
+                    else:
+                        # For envs that don't need refill, copy current chunk
+                        new_chunk[env_idx] = buffer.buffer[env_idx]
+                
                 if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
                     raise ValueError(
                         "RFM returned shape {} — expected {}".format(
                             new_chunk.shape, (num_envs, args.chunk_size, action_dim)
                         )
                     )
+
+
+
+                # Call RFM for the **entire batch** (simpler; slice if expensive)
+                # new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)#rfm(obs)[..., : args.chunk_size, :]
+                # if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
+                #     raise ValueError(
+                #         "RFM returned shape {} — expected {}".format(
+                #             new_chunk.shape, (num_envs, args.chunk_size, action_dim)
+                #         )
+                #     )
                 buffer.refill(new_chunk)
 
             # ------------------------------------------------------------------

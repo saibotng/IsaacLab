@@ -173,6 +173,14 @@ class EventCfg_Inference:
             "asset_b": SceneEntityCfg("target_object", body_names="Target"),
         },
     )
+    reset_joints = EventTerm(
+        func=reset_joints_by_degree,
+        mode="reset",
+        params={
+            "joint_rel_degree_range": (-5.0, 5.0),
+            "gripper_abs_m_range": (0.00, 0.01),
+        }
+    )
 
 
 @configclass
