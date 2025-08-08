@@ -14,7 +14,7 @@ import isaacsim.core.utils.prims as prim_utils
 import isaaclab.sim as sim_utils
 
 from . import mdp
-from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference
+from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference, TABLE_HEIGHT
 
 ##
 # Pre-defined configs
@@ -101,9 +101,9 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 ),
                 mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), metallic=0.2),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.5), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.055], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_HEIGHT + 0.05], rot=[1, 0, 0, 0]),
         )
 
         self.scene.target_object = RigidObjectCfg(
@@ -113,9 +113,9 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(),
                 mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0), metallic=0.2),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.055], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_HEIGHT + 0.05], rot=[1, 0, 0, 0]),
         )
 
         # Listens to the required transforms

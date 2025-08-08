@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 load_dotenv()  # loads variables from .env into os.environ
 
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
+TABLE_HEIGHT = 0.0
 ##
 # Scene definition
 ##
@@ -73,7 +74,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # Table
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.3, 0], rot=[0.707, 0, 0, -0.707]),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.3, TABLE_HEIGHT], rot=[0.707, 0, 0, -0.707]),
         spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/ThorlabsTable/table_instanceable.usd")
     )
     # plane
@@ -208,7 +209,7 @@ class TerminationsCfg_SM:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_HEIGHT-0.05, "asset_cfg": SceneEntityCfg("object")}
     )
 
     success = DoneTerm(
@@ -222,7 +223,7 @@ class TerminationsCfg_Inference:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_HEIGHT-0.05, "asset_cfg": SceneEntityCfg("object")}
     )
 
     success = DoneTerm(
