@@ -59,7 +59,9 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     target_object: RigidObjectCfg | DeformableObjectCfg = MISSING  # for pick and place
 
     # Camera
-    camera_global: CameraCfg = MISSING
+    camera_global_front: CameraCfg = MISSING
+
+    camera_global_side: CameraCfg = MISSING
 
     camera_wrist: CameraCfg = MISSING
 
@@ -124,7 +126,8 @@ class ObservationsCfg:
 
     class CameraObsCfg(ObsGroup):
         camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist"), "normalize": False})
-        camera_global = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global"), "normalize": False})
+        camera_global_front = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_front"), "normalize": False})
+        camera_global_side = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_side"), "normalize": False})
 
     # observation groups
     joints: JointObsCfg = JointObsCfg()
@@ -147,7 +150,7 @@ class EventCfg_SM:
         func= mdp.reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (0.785, 2.356)},
             "velocity_range": {},
             "asset_a": SceneEntityCfg("object", body_names="Object"),
             "asset_b": SceneEntityCfg("target_object", body_names="Target"),
@@ -159,21 +162,8 @@ class EventCfg_SM:
     )
 
 @configclass
-class EventCfg_Inference:
+class EventCfg_Inference(EventCfg_SM):
     """Configuration for events."""
-
-    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-
-    reset_objects = EventTerm(
-        func=mdp.reset_root_state_uniform_nonoverlap,
-        mode="reset",
-        params={
-            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0)},
-            "velocity_range": {},
-            "asset_a": SceneEntityCfg("object", body_names="Object"),
-            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
-        },
-    )
     reset_joints = EventTerm(
         func=reset_joints_by_degree,
         mode="reset",
@@ -265,8 +255,10 @@ class ObservationRecorder(RecorderTerm):
         obs_dict = {
             "joints_pos_state": obs["joints"]["joint_pos"][:, :-1],
             "joints_vel_state": obs["joints"]["joint_vel"][:, :-1],
-            "camera_global": obs["cameras"][:, :, :, :3],
-            "camera_wrist": obs["cameras"][:, :, :, 3:],
+   
+            "camera_global_front": obs["cameras"][:, :, :, 0:3],
+            "camera_global_side": obs["cameras"][:, :, :, 3:6],
+            "camera_wrist": obs["cameras"][:, :, :, 6:],
         }
 
         obs_dict_cpu = {k: (
@@ -313,7 +305,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the pick-and-place environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=8, env_spacing=5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4, env_spacing=8)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -323,7 +315,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     terminations = TerminationsCfg_SM()
     events = EventCfg_SM()
     curriculum: CurriculumCfg = CurriculumCfg()
-    recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
+    #recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
 
     def __post_init__(self):
         """Post initialization."""

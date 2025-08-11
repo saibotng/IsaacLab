@@ -90,7 +90,7 @@ UR5_HIGH_PD_CFG.actuators["ur5_wrist"].damping = 80.0
 def reset_joints_by_degree(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
-    joint_rel_degree_range: tuple[float, float] = (-30.0, 30.0),
+    joint_rel_degree_range: tuple[float, float] = (-20.0, 20.0),
     gripper_abs_m_range: tuple[float, float] = (0.00, 0.04),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):

@@ -154,7 +154,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 #parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
-parser.add_argument("--joint_tol", type=float, default=0.005, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--joint_tol", type=float, default=0.01, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
 
@@ -204,7 +204,7 @@ import time
 
 
 
-TASK_DESCRIPTION = "Pick up the red cube and place it on the green area"
+TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
 
 # -----------------------------------------------------------------------------
 # Utilities
@@ -219,12 +219,14 @@ def reset_rfm(done_ids: torch.Tensor):
 
 def request_rfm_server(env_obs: dict) -> None:
         rfm_obs = {
-            "video.camera_wrist": env_obs["cameras"][:, :, 3:].cpu().unsqueeze(0).numpy(),
-            "video.camera_global": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
+            "video.camera_wrist": env_obs["cameras"][:, :, 6:].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_side": env_obs["cameras"][:, :, 3:6].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_front": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
             "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
             "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
             "annotation.human.action.task_description": [TASK_DESCRIPTION],
         }
+        
         action = zmq_client_call(rfm_obs)
 
         for key, value in action.items():
@@ -281,7 +283,7 @@ class ActionBuffer:
     def update_targets(self, reached_mask: torch.Tensor):
         """Advance to the **next** waypoint *only* for envs that reached the current one."""
         can_advance = reached_mask & (self.ptr < self.chunk_size - 1)
-        self.last_action_reached = reached_mask & (self.ptr == self.chunk_size - 1)
+        self.last_action_reached = reached_mask & (self.ptr == self.chunk_size - 6)
         if can_advance.any():
             self.ptr[can_advance] += 1
             # Gather next target

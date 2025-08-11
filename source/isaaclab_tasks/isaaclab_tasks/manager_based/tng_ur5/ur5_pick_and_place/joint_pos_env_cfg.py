@@ -3,10 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.assets import RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg, DeformableObjectCfg
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
+from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg, DeformableBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
@@ -51,8 +51,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             ),
         )
 
-        self.scene.camera_global = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global",
+        self.scene.camera_global_front = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_front",
             update_period=0,
             height=512,
             width=512,
@@ -68,6 +68,27 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             offset=CameraCfg.OffsetCfg(
                 pos=(1.5, 0.0, 0.9),
                 rot=(0.32651, -0.62721, -0.62721, 0.32651),
+            ),
+        )
+
+
+        self.scene.camera_global_side = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_side",
+            update_period=0,
+            height=512,
+            width=512,
+            data_types=[
+                "rgb",
+            ],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=24.0,
+                focus_distance=400.0,
+                horizontal_aperture=20.955,
+                clipping_range=(0.1, 1.0e5)
+            ),
+            offset=CameraCfg.OffsetCfg(
+                pos=(0.4, 0.9, 0.9),
+                rot=(0.0, -0.0, -0.90631, 0.42262),
             ),
         )
 

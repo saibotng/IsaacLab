@@ -405,16 +405,18 @@ def main():
             # -- object frame
             object_data: RigidObjectData = env.unwrapped.scene["object"].data
             object_position = object_data.root_pos_w - env.unwrapped.scene.env_origins
+            object_orientation = object_data.root_quat_w
             # -- target object frame
             target_object_data: RigidObjectData = env.unwrapped.scene["target_object"].data
 
             target_object_position = target_object_data.root_pos_w - env.unwrapped.scene.env_origins
+            target_object_orientation = target_object_data.root_quat_w
 
             # advance state machine
             actions = pick_sm.compute(
                 torch.cat([tcp_rest_position, tcp_rest_orientation], dim=-1),
-                torch.cat([object_position, desired_orientation], dim=-1),
-                torch.cat([target_object_position, desired_orientation], dim=-1),
+                torch.cat([object_position, object_orientation], dim=-1),
+                torch.cat([target_object_position, target_object_orientation], dim=-1),
             )
 
             # reset state machine
