@@ -15,7 +15,7 @@ from . import mdp
 ##
 # Pre-defined configs
 ##
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_HIGH_PD_CFG, ARM_JOINTS, GRIPPER_JOINTS  # isort: skip
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_RECORD_CFG, UR5_INFERENCE_CFG, ARM_JOINTS, GRIPPER_JOINTS  # isort: skip
 ##
 # Rigid object lift environment.
 ##
@@ -29,7 +29,7 @@ class UR5CubePickAndPlaceEnvCfg(joint_pos_env_cfg.UR5CubePickAndPlaceEnvCfg):
 
         # Set UR5 as robot
         # We switch here to a stiffer PD controller for IK tracking to be better.
-        self.scene.robot = UR5_HIGH_PD_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = UR5_RECORD_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # Set actions for the specific robot type (UR5)
         self.actions.arm_action = DifferentialInverseKinematicsActionCfg(
@@ -60,7 +60,9 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         # post init of parent
         super().__post_init__()
         # make a smaller scene for play
+        self.scene.robot = UR5_INFERENCE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.num_envs = 1
-        self.scene.env_spacing = 5.0
+        self.scene.env_spacing = 5
+        self.episode_length_s = 60.0
         # disable randomization for play
         self.observations.joints.enable_corruption = False

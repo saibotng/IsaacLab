@@ -305,7 +305,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the pick-and-place environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4, env_spacing=8)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=10, env_spacing=8)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()

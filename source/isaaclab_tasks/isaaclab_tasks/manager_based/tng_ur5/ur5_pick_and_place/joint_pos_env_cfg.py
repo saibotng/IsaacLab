@@ -20,7 +20,7 @@ from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, T
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import UR5_CFG, ARM_JOINTS, GRIPPER_JOINTS  # isort: skip
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_JOINTS, UR5_RECORD_CFG, UR5_INFERENCE_CFG  # isort: skip
 from isaaclab.sensors import CameraCfg
 import isaaclab.sim as sim_utils
 
@@ -31,7 +31,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
         super().__post_init__()
 
         # Set UR5 as robot
-        self.scene.robot = UR5_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = UR5_RECORD_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         self.scene.camera_wrist = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/wrist_3_link/camera_wrist",
@@ -46,8 +46,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(0.0, -0.09, 0.08),
-                rot=(0.96593, -0.25882, 0.0, 0.0),
+                pos=(0.0, -0.1, 0.07),
+                rot=(0.95, -0.3, 0.0, 0.0),
             ),
         )
 
@@ -168,8 +168,9 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         # post init of parent
         super().__post_init__()
         # make a smaller scene for play
+        self.scene.robot = UR5_INFERENCE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.num_envs = 1
         self.scene.env_spacing = 5
         self.episode_length_s = 60.0
         # disable randomization for play
-        #self.observations.joints.enable_corruption = False
+        self.observations.joints.enable_corruption = False

@@ -24,6 +24,7 @@ import zmq
 from io import BytesIO
 import numpy as np
 import torch
+from collections import deque
 
 class ModalityConfig(BaseModel):
     """Configuration for a modality."""
@@ -152,12 +153,9 @@ import argparse
 
 from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
-#parser.add_argument("--rfm", type=int, default=8, help="Path/module of the RFM to load")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
-parser.add_argument("--joint_tol", type=float, default=0.01, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--joint_tol", type=float, default=0.005, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
-parser.add_argument("--num_envs", type=int, default=None, help="Number of parallel environments")
-
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
 # Parse args first to check if renderer should be enabled
@@ -199,23 +197,14 @@ import sys
 
 import gymnasium as gym
 import torch
-from isaaclab_tasks.utils.parse_cfg import parse_env_cfg  # deferred import
+from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
 import time
 
 
 
 TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
 
-# -----------------------------------------------------------------------------
-# Utilities
-# -----------------------------------------------------------------------------
 
-
-def reset_rfm(done_ids: torch.Tensor):
-    """Reset the RFM state for the given envs."""
-    # This is a no-op in this example, but you can implement
-    # RFM-specific reset logic here if needed.
-    pass
 
 def request_rfm_server(env_obs: dict) -> None:
         rfm_obs = {
@@ -250,66 +239,49 @@ def zmq_client_call(obs: dict):
     print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
     return action
 
+
 class ActionBuffer:
-    """Chunked action buffer with *reach‑to‑advance* gating."""
 
     def __init__(self, num_envs: int, chunk_size: int, action_dim: int, device: torch.device):
         self.num_envs = num_envs
         self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
-        self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)  # forces refill
+        self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)  
         self.chunk_size = chunk_size
         self.action_dim = action_dim
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
-        self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)  # initially all need refill
+        self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)  
 
-    # ------------------------------------------------------------------
-    # High‑level API
-    # ------------------------------------------------------------------
     def needs_refill(self) -> torch.Tensor:
-        """Boolean mask of envs whose chunk has been fully consumed."""
         return self.last_action_reached
  
     def refill(self, new_chunk: torch.Tensor):
-        """Overwrite buffer and reset pointers."""
         if new_chunk.shape != self.buffer.shape:
             raise ValueError(
                 f"Chunk shape {new_chunk.shape} does not match buffer shape {self.buffer.shape}."
             )
         self.buffer.copy_(new_chunk)
         self.ptr.zero_()
-        # First waypoint becomes the active target
         self.current_target.copy_(new_chunk[:, 0, :])
 
-    def update_targets(self, reached_mask: torch.Tensor):
-        """Advance to the **next** waypoint *only* for envs that reached the current one."""
-        can_advance = reached_mask & (self.ptr < self.chunk_size - 1)
-        self.last_action_reached = reached_mask & (self.ptr == self.chunk_size - 6)
+    def update_targets(self, update_mask: torch.Tensor):
+        can_advance = update_mask & (self.ptr < self.chunk_size - 1)
+        self.last_action_reached = update_mask & (self.ptr == self.chunk_size - 6)
         if can_advance.any():
             self.ptr[can_advance] += 1
-            # Gather next target
             next_idx = self.ptr[can_advance]
             self.current_target[can_advance] = self.buffer[can_advance, next_idx, :]
 
     def mark_done(self, done_ids: torch.Tensor):
-        """On env reset, invalidate its chunk so it is refilled next step."""
-        self.ptr[done_ids] = self.chunk_size  # will trigger needs_refill()
+        self.ptr[done_ids] = self.chunk_size  
         
     def reset(self, done_mask: torch.Tensor):
-        """Reset the buffer for done environments only."""
-        # Reset buffer for done environments
         self.buffer[done_mask] = 0
-        # Force refill only for done environments on next step
         self.last_action_reached[done_mask] = True
 
     @property
     def actions(self) -> torch.Tensor:
-        """Return the *currently active* target for all envs."""
         return self.current_target
 
-
-# -----------------------------------------------------------------------------
-# Main evaluation loop
-# -----------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> None:
     env_cfg = parse_env_cfg(
@@ -326,40 +298,32 @@ def main(argv: list[str] | None = None) -> None:
     action_dim: int = env.unwrapped.action_space.shape[-1]
     device: torch.device = env.unwrapped.device
 
-    # ------------------------------------------------------------------
-    # Instantiate helpers
-    # ------------------------------------------------------------------
-    #rfm = load_rfm(args.rfm, device)
     buffer = ActionBuffer(num_envs, args.chunk_size, action_dim, device)
+   
+    err_deque = deque(maxlen=4)
+    err_deque.append(torch.zeros(num_envs, device=device)) 
 
-    # ------------------------------------------------------------------
-    # Simulation loop
-    # ------------------------------------------------------------------
+    action_idx_deque = deque(maxlen=4)
+    action_idx_deque.append(torch.zeros(num_envs, device=device)) 
+
     while simulation_app.is_running():
+
         with torch.inference_mode():
-            # ------------------------------------------------------------------
-            # (1) Rollout new chunks where necessary
-            # ------------------------------------------------------------------
             refill_mask = buffer.needs_refill()
+
             if refill_mask.any():
-                # Generate a realistic action chunk for demonstration
-                # Starting from current joint positions
-                
-                # Define a smooth trajectory for 8 steps
                 new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)
-                
+
                 for env_idx in range(num_envs):
-                    
+
                     if refill_mask[env_idx]:
                         env_obs = {
                             "cameras": obs["cameras"][env_idx],
                             "joints": obs["joints"]["joint_pos"][env_idx],
                         }
-
-                        new_chunk[env_idx] = request_rfm_server(env_obs)  # (K, action_dim)
+                        new_chunk[env_idx] = request_rfm_server(env_obs)
 
                     else:
-                        # For envs that don't need refill, copy current chunk
                         new_chunk[env_idx] = buffer.buffer[env_idx]
                 
                 if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
@@ -368,45 +332,37 @@ def main(argv: list[str] | None = None) -> None:
                             new_chunk.shape, (num_envs, args.chunk_size, action_dim)
                         )
                     )
-
-
-
-                # Call RFM for the **entire batch** (simpler; slice if expensive)
-                # new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)#rfm(obs)[..., : args.chunk_size, :]
-                # if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
-                #     raise ValueError(
-                #         "RFM returned shape {} — expected {}".format(
-                #             new_chunk.shape, (num_envs, args.chunk_size, action_dim)
-                #         )
-                #     )
+                
                 buffer.refill(new_chunk)
 
-            # ------------------------------------------------------------------
-            # (2) Send current target actions to env
-            # ------------------------------------------------------------------
             actions = buffer.actions
             obs, _, terminated, truncated, _ = env.step(actions)
             done_mask = terminated | truncated
 
-            # ------------------------------------------------------------------
-            # (3) Measure convergence & advance targets
-            # ------------------------------------------------------------------
-            q = obs['joints']['joint_pos']
-            err = torch.abs(q - buffer.actions).max(dim=-1).values  # shape (N,)
-            reached = err < args.joint_tol
-            buffer.update_targets(reached)
 
-            # ------------------------------------------------------------------
-            # (4) Handle resets
-            # ------------------------------------------------------------------
+            q = obs['joints']['joint_pos']
+            err = torch.abs(q - buffer.actions).max(dim=-1).values  
+            reached = err < args.joint_tol
+
+            err_deque.append(err)
+            stacked_err_deque = torch.stack(list(err_deque), dim=0)
+            err_span = stacked_err_deque.max(dim=0).values - stacked_err_deque.min(dim=0).values
+
+            action_idx_deque.append(buffer.ptr.clone())
+            stacked_action_idx_deque = torch.stack(list(action_idx_deque), dim=0)
+            action_idx_span = stacked_action_idx_deque.max(dim=0).values - stacked_action_idx_deque.min(dim=0).values
+
+            stuck = (err_span < 1e-6) & (action_idx_span == 0)
+            if stuck.any():
+                print(f"Stuck envs: {stuck.sum()} / {num_envs}")
+            
+            envs_to_update_targets = reached | stuck
+            buffer.update_targets(envs_to_update_targets)
+
             if done_mask.any():
-                reset_rfm(done_mask.nonzero(as_tuple=False).squeeze(-1))
                 buffer.reset(done_mask)
                 env.reset()
 
-    # ------------------------------------------------------------------
-    # Clean shutdown
-    # ------------------------------------------------------------------
     env.close()
     simulation_app.close()
 
