@@ -54,16 +54,18 @@ UR5_CFG = ArticulationCfg(
     ),
     actuators={
         "ur5_shoulder": ImplicitActuatorCfg(
-            joint_names_expr=["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint"],
+            joint_names_expr=["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint"],
             effort_limit=87.0,
-            velocity_limit=100.0,
+            velocity_limit=0.6,
+            velocity_limit_sim=0.6,
             stiffness=400.0,
             damping=40.0,
         ),
         "ur5_wrist": ImplicitActuatorCfg(
-            joint_names_expr=["wrist_1_joint", "wrist_2_joint", "wrist_3_joint"],
+            joint_names_expr=["wrist_2_joint", "wrist_3_joint"],
             effort_limit=87.0,
-            velocity_limit=100.0,
+            velocity_limit=2.0,
+            velocity_limit_sim=2.0,
             stiffness=400.0,
             damping=40.0,
         ),
@@ -71,8 +73,8 @@ UR5_CFG = ArticulationCfg(
             joint_names_expr=GRIPPER_JOINTS,
             effort_limit_sim=200.0,
             velocity_limit_sim=0.2,
-            stiffness=5e3,                 # Increased from 2e3 - stronger position hold
-            damping=2e2,   
+            stiffness=1500.0,                 # Increased from 2e3 - stronger position hold
+            damping=200.0,   
         ),
     },
     soft_joint_pos_limit_factor=1.0,

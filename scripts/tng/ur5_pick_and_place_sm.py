@@ -186,7 +186,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold,
+            0.15,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.LIFT_OBJECT:
@@ -200,7 +200,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold,
+            0.1,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.MOVE_ABOVE_TARGET:
@@ -214,7 +214,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold,
+            position_threshold * 0.25,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.APPROACH_TARGET:
@@ -389,6 +389,7 @@ def main():
     pick_sm = PickAndPlaceSm(
         env_cfg.sim.dt * env_cfg.decimation, env.unwrapped.num_envs, env.unwrapped.device, position_threshold=0.01
     )
+    done_counter = 0
 
     while simulation_app.is_running():
         # run everything in inference mode
@@ -422,6 +423,8 @@ def main():
             # reset state machine
             dones = env.unwrapped.termination_manager.terminated
             if dones.any():
+                done_counter += sum(dones)
+                print(f"Done counter: {done_counter}")
                 pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
 
     # close the environment

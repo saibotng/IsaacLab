@@ -63,6 +63,6 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         self.scene.robot = UR5_INFERENCE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.num_envs = 1
         self.scene.env_spacing = 5
-        self.episode_length_s = 60.0
+        self.episode_length_s = 30.0
         # disable randomization for play
         self.observations.joints.enable_corruption = False

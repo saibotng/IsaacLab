@@ -32,6 +32,7 @@ from . import mdp
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 import os
 from dotenv import load_dotenv
+from math import pi
 
 load_dotenv()  # loads variables from .env into os.environ
 
@@ -150,7 +151,7 @@ class EventCfg_SM:
         func= mdp.reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (0.785, 2.356)},
+            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (55 * (pi / 180), 125 * (pi / 180))},
             "velocity_range": {},
             "asset_a": SceneEntityCfg("object", body_names="Object"),
             "asset_b": SceneEntityCfg("target_object", body_names="Target"),
@@ -159,11 +160,26 @@ class EventCfg_SM:
     reset_joints = EventTerm(
         func=reset_joints_by_degree,
         mode="reset",
+        params={
+            "joint_rel_degree_range": (-10.0, 10.0),
+            "gripper_abs_m_range": (0.00, 0.04),
+        }
     )
 
 @configclass
 class EventCfg_Inference(EventCfg_SM):
     """Configuration for events."""
+
+    reset_objects = EventTerm(
+        func= mdp.reset_root_state_uniform_nonoverlap,
+        mode="reset",
+        params={
+            "pose_range": {"x": (-0.15, 0.15), "y": (-0.25, 0.13), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
+            "velocity_range": {},
+            "asset_a": SceneEntityCfg("object", body_names="Object"),
+            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
+        },
+    )
     reset_joints = EventTerm(
         func=reset_joints_by_degree,
         mode="reset",
@@ -315,13 +331,13 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     terminations = TerminationsCfg_SM()
     events = EventCfg_SM()
     curriculum: CurriculumCfg = CurriculumCfg()
-    #recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
+    recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
         self.decimation = 5
-        self.episode_length_s = 10.0
+        self.episode_length_s = 20.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
