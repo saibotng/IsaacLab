@@ -203,7 +203,7 @@ import time
 
 
 TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
-DELTA_ACTIONS = True
+DELTA_ACTIONS = False
 SNAP_GRIPPER_ACTIONS = True
 
 def maybe_snap_gripper_actions(gripper_actions):
@@ -304,9 +304,6 @@ class ActionBuffer:
             self.ptr[can_advance] += 1
             next_idx = self.ptr[can_advance]
             self.current_target[can_advance] = self.buffer[can_advance, next_idx, :]
-
-    def mark_done(self, done_ids: torch.Tensor):
-        self.ptr[done_ids] = self.chunk_size  
         
     def reset(self, done_mask: torch.Tensor):
         self.buffer[done_mask] = 0
@@ -350,6 +347,7 @@ def main(argv: list[str] | None = None) -> None:
                 for env_idx in range(num_envs):
 
                     if refill_mask[env_idx]:
+                        obs = env.unwrapped.observation_manager.compute()
                         env_obs = {
                             "cameras": obs["cameras"][env_idx],
                             "joints": obs["joints"]["joint_pos"][env_idx],
@@ -390,13 +388,11 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Stuck envs: {stuck.sum()} / {num_envs}")
             
             envs_to_update_targets = reached | stuck
-
-
             buffer.update_targets(envs_to_update_targets)
 
             if done_mask.any():
                 buffer.reset(done_mask)
-                
+
     env.close()
     simulation_app.close()
 
