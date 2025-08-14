@@ -244,8 +244,8 @@ def request_rfm_server(env_obs: dict) -> None:
             "video.camera_global_front": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
             "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
             "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
-            "state.delta_robot_arm": env_obs["delta_joints"][:6].cpu().unsqueeze(0).numpy(),
-            "state.delta_gripper": env_obs["delta_joints"][6:7].cpu().unsqueeze(0).numpy(),
+            #"state.delta_robot_arm": env_obs["delta_joints"][:6].cpu().unsqueeze(0).numpy(),
+            #"state.delta_gripper": env_obs["delta_joints"][6:7].cpu().unsqueeze(0).numpy(),
             "annotation.human.action.task_description": [TASK_DESCRIPTION],
         }
         
@@ -391,13 +391,12 @@ def main(argv: list[str] | None = None) -> None:
             
             envs_to_update_targets = reached | stuck
 
-            if envs_to_update_targets.any():
-                buffer.update_targets(envs_to_update_targets)
+
+            buffer.update_targets(envs_to_update_targets)
 
             if done_mask.any():
                 buffer.reset(done_mask)
-                obs,_ = env.reset()
-
+                
     env.close()
     simulation_app.close()
 
