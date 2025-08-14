@@ -203,8 +203,39 @@ import time
 
 
 TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
+DELTA_ACTIONS = True
+SNAP_GRIPPER_ACTIONS = True
 
+def maybe_snap_gripper_actions(gripper_actions):
+    if SNAP_GRIPPER_ACTIONS:
+        return [x + 0.0015 if x > 0.015 else x for x in gripper_actions]
+    return gripper_actions
 
+def convert_raw_abs_action_to_action_chunk(action):
+    gripper_actions = maybe_snap_gripper_actions(action["action.gripper"])
+    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
+    arm_arr = action["action.robot_arm"]
+    action_arr = np.concatenate([arm_arr, gripper_arr], axis=1)
+    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+    return action_chunk
+
+def convert_raw_delta_action_to_action_chunk(action, observation):
+    gripper_deltas = action["action.delta_gripper"]
+    arm_deltas = action["action.delta_robot_arm"]
+
+    gripper_state = observation["state.gripper"].squeeze()
+    arm_state = observation["state.robot_arm"].squeeze()
+
+    gripper_actions = np.cumsum(gripper_deltas, axis=0) + gripper_state
+    arm_actions     = np.cumsum(arm_deltas,     axis=0) + arm_state
+
+    gripper_actions = maybe_snap_gripper_actions(gripper_actions)
+
+    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
+
+    action_arr = np.concatenate([arm_actions, gripper_arr], axis=1)
+    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+    return action_chunk
 
 def request_rfm_server(env_obs: dict) -> None:
         rfm_obs = {
@@ -213,6 +244,8 @@ def request_rfm_server(env_obs: dict) -> None:
             "video.camera_global_front": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
             "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
             "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
+            "state.delta_robot_arm": env_obs["delta_joints"][:6].cpu().unsqueeze(0).numpy(),
+            "state.delta_gripper": env_obs["delta_joints"][6:7].cpu().unsqueeze(0).numpy(),
             "annotation.human.action.task_description": [TASK_DESCRIPTION],
         }
         
@@ -221,10 +254,11 @@ def request_rfm_server(env_obs: dict) -> None:
         for key, value in action.items():
             print(f"Action: {key}: {value.shape}")
 
-        gripper_arr = np.stack([action["action.gripper"], action["action.gripper"]], axis=1)
-        arm_arr = action["action.robot_arm"]
-        action_arr = np.concatenate([arm_arr, gripper_arr], axis=1)
-        action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+        if DELTA_ACTIONS:
+            action_chunk = convert_raw_delta_action_to_action_chunk(action, rfm_obs)
+        else:
+            action_chunk = convert_raw_abs_action_to_action_chunk(action)
+
         return action_chunk
 
 def zmq_client_call(obs: dict):
@@ -265,7 +299,7 @@ class ActionBuffer:
 
     def update_targets(self, update_mask: torch.Tensor):
         can_advance = update_mask & (self.ptr < self.chunk_size - 1)
-        self.last_action_reached = update_mask & (self.ptr == self.chunk_size - 6)
+        self.last_action_reached = update_mask & (self.ptr == self.chunk_size - 1)
         if can_advance.any():
             self.ptr[can_advance] += 1
             next_idx = self.ptr[can_advance]
@@ -287,7 +321,6 @@ def main(argv: list[str] | None = None) -> None:
     env_cfg = parse_env_cfg(
         "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0",
         device=args.device,
-        num_envs=args.num_envs,
         use_fabric=not args.disable_fabric,
     )
 
@@ -340,7 +373,7 @@ def main(argv: list[str] | None = None) -> None:
             done_mask = terminated | truncated
 
 
-            q = obs['joints']['joint_pos']
+            q = obs['joints']['joint_pos'].clone()  
             err = torch.abs(q - buffer.actions).max(dim=-1).values  
             reached = err < args.joint_tol
 
@@ -352,16 +385,18 @@ def main(argv: list[str] | None = None) -> None:
             stacked_action_idx_deque = torch.stack(list(action_idx_deque), dim=0)
             action_idx_span = stacked_action_idx_deque.max(dim=0).values - stacked_action_idx_deque.min(dim=0).values
 
-            stuck = (err_span < 1e-6) & (action_idx_span == 0)
+            stuck = (err_span < 1e-5) & (action_idx_span == 0)
             if stuck.any():
                 print(f"Stuck envs: {stuck.sum()} / {num_envs}")
             
             envs_to_update_targets = reached | stuck
-            buffer.update_targets(envs_to_update_targets)
+
+            if envs_to_update_targets.any():
+                buffer.update_targets(envs_to_update_targets)
 
             if done_mask.any():
                 buffer.reset(done_mask)
-                env.reset()
+                obs,_ = env.reset()
 
     env.close()
     simulation_app.close()
