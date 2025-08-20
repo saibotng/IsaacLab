@@ -224,57 +224,57 @@ def main(argv: list[str] | None = None) -> None:
 
     action_idx_deque = deque(maxlen=4)
     action_idx_deque.append(torch.zeros(num_envs, device=device)) 
+    try:
+        while simulation_app.is_running():
 
-    while simulation_app.is_running():
+            with torch.inference_mode():
+                refill_mask = buffer.needs_refill()
 
-        with torch.inference_mode():
-            refill_mask = buffer.needs_refill()
+                if refill_mask.any():
+                    full_obs = env.unwrapped.observation_manager.compute()
+                    env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+                    new_chunk = torch.empty(len(env_ids), args.chunk_size, action_dim, device=device)
 
-            if refill_mask.any():
-                full_obs = env.unwrapped.observation_manager.compute()
-                env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
-                new_chunk = torch.empty(len(env_ids), args.chunk_size, action_dim, device=device)
+                    for k, env_idx in enumerate(env_ids):
+                        env_obs = {
+                            "cameras": full_obs["cameras"][env_idx],
+                            "joints":  full_obs["joints"]["joint_pos"][env_idx],
+                        }
+                        gr00t_obs = convert_observations_to_gr00t_format(env_obs)
+                        gr00t_action = gr00t_client.get_action(gr00t_obs)
+                        new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
 
-                for k, env_idx in enumerate(env_ids):
-                    env_obs = {
-                        "cameras": full_obs["cameras"][env_idx],
-                        "joints":  full_obs["joints"]["joint_pos"][env_idx],
-                    }
-                    gr00t_obs = convert_observations_to_gr00t_format(env_obs)
-                    gr00t_action = gr00t_client.get_action(gr00t_obs)
-                    new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
+                    buffer.refill(refill_mask, new_chunk)
 
-                buffer.refill(refill_mask, new_chunk)
-
-            actions = buffer.actions
-            obs, _, terminated, truncated, _ = env.step(actions)
-            done_mask = (terminated | truncated).to(device=device)
+                actions = buffer.actions
+                obs, _, terminated, truncated, _ = env.step(actions)
+                done_mask = (terminated | truncated).to(device=device)
 
 
-            q = obs['joints']['joint_pos'] 
-            err_arm = torch.abs(q[:,:6] - buffer.actions[:,:6]).max(dim=-1).values  
-            arm_reached = err_arm < args.joint_tol
-            err_deque.append(err_arm)
+                q = obs['joints']['joint_pos'] 
+                err_arm = torch.abs(q[:,:6] - buffer.actions[:,:6]).max(dim=-1).values  
+                arm_reached = err_arm < args.joint_tol
+                err_deque.append(err_arm)
 
-            stacked_err = torch.stack(list(err_deque), dim=0)
-            err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
+                stacked_err = torch.stack(list(err_deque), dim=0)
+                err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
-            action_idx_deque.append(buffer.ptr.clone())
-            stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
-            action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
+                action_idx_deque.append(buffer.ptr.clone())
+                stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
+                action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
 
-            stuck = (err_span < 1e-5) & (action_idx_span == 0)
-            if stuck.any():
-                print(f"Stuck envs: {stuck.sum()} / {num_envs}")
-            
-            envs_to_update_targets = (arm_reached | stuck)
-            buffer.update_targets(envs_to_update_targets)
+                stuck = (err_span < 1e-5) & (action_idx_span == 0)
+                if stuck.any():
+                    print(f"Stuck envs: {stuck.sum()} / {num_envs}")
+                
+                envs_to_update_targets = (arm_reached | stuck)
+                buffer.update_targets(envs_to_update_targets)
 
-            if done_mask.any():
-                buffer.reset(done_mask)
-
-    env.close()
-    simulation_app.close()
+                if done_mask.any():
+                    buffer.reset(done_mask)
+    finally:
+        try: env.close()
+        finally: simulation_app.close()
 
 
 if __name__ == "__main__":

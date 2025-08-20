@@ -390,45 +390,46 @@ def main():
         env_cfg.sim.dt * env_cfg.decimation, env.unwrapped.num_envs, env.unwrapped.device, position_threshold=0.01
     )
     done_counter = 0
+    try:
+        while simulation_app.is_running():
+            # run everything in inference mode
+            with torch.inference_mode():
+                env.unwrapped.extras["state"] = pick_sm.sm_state
+                # step environment
+                env.step(actions)[-2]
 
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            env.unwrapped.extras["state"] = pick_sm.sm_state
-            # step environment
-            env.step(actions)[-2]
+                # observations
+                # -- end-effector frame
+                ee_frame_sensor = env.unwrapped.scene["ee_frame"]
+                tcp_rest_position = ee_frame_sensor.data.target_pos_w[..., 0, :].clone() - env.unwrapped.scene.env_origins
+                tcp_rest_orientation = ee_frame_sensor.data.target_quat_w[..., 0, :].clone()
+                # -- object frame
+                object_data: RigidObjectData = env.unwrapped.scene["object"].data
+                object_position = object_data.root_pos_w - env.unwrapped.scene.env_origins
+                object_orientation = object_data.root_quat_w
+                # -- target object frame
+                target_object_data: RigidObjectData = env.unwrapped.scene["target_object"].data
 
-            # observations
-            # -- end-effector frame
-            ee_frame_sensor = env.unwrapped.scene["ee_frame"]
-            tcp_rest_position = ee_frame_sensor.data.target_pos_w[..., 0, :].clone() - env.unwrapped.scene.env_origins
-            tcp_rest_orientation = ee_frame_sensor.data.target_quat_w[..., 0, :].clone()
-            # -- object frame
-            object_data: RigidObjectData = env.unwrapped.scene["object"].data
-            object_position = object_data.root_pos_w - env.unwrapped.scene.env_origins
-            object_orientation = object_data.root_quat_w
-            # -- target object frame
-            target_object_data: RigidObjectData = env.unwrapped.scene["target_object"].data
+                target_object_position = target_object_data.root_pos_w - env.unwrapped.scene.env_origins
+                target_object_orientation = target_object_data.root_quat_w
 
-            target_object_position = target_object_data.root_pos_w - env.unwrapped.scene.env_origins
-            target_object_orientation = target_object_data.root_quat_w
+                # advance state machine
+                actions = pick_sm.compute(
+                    torch.cat([tcp_rest_position, tcp_rest_orientation], dim=-1),
+                    torch.cat([object_position, object_orientation], dim=-1),
+                    torch.cat([target_object_position, target_object_orientation], dim=-1),
+                )
 
-            # advance state machine
-            actions = pick_sm.compute(
-                torch.cat([tcp_rest_position, tcp_rest_orientation], dim=-1),
-                torch.cat([object_position, object_orientation], dim=-1),
-                torch.cat([target_object_position, target_object_orientation], dim=-1),
-            )
-
-            # reset state machine
-            dones = env.unwrapped.termination_manager.terminated
-            if dones.any():
-                done_counter += sum(dones)
-                print(f"Done counter: {done_counter}")
-                pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
-
-    # close the environment
-    env.close()
+                # reset state machine
+                dones = env.unwrapped.termination_manager.terminated
+                if dones.any():
+                    done_counter += sum(dones)
+                    print(f"Done counter: {done_counter}")
+                    pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
+    finally:
+        # close the environment
+        try: env.close()
+        finally: simulation_app.close()
 
 
 if __name__ == "__main__":
