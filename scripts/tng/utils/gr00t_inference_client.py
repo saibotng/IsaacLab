@@ -3,12 +3,13 @@
 
 from abc import ABC, abstractmethod
 from io import BytesIO
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import torch
 import zmq
 
 from pydantic import BaseModel
+
 
 
 class ModalityConfig(BaseModel):
@@ -43,7 +44,6 @@ class BasePolicy(ABC):
         """
         raise NotImplementedError
 
-
 class TorchSerializer:
     @staticmethod
     def to_bytes(data: dict) -> bytes:
@@ -56,8 +56,7 @@ class TorchSerializer:
         buffer = BytesIO(data)
         obj = torch.load(buffer, weights_only=False)
         return obj
-
-
+    
 class BaseInferenceClient:
     def __init__(
         self,
@@ -121,7 +120,6 @@ class BaseInferenceClient:
         """Cleanup resources on destruction"""
         self.socket.close()
         self.context.term()
-
 
 class RobotInferenceClient(BaseInferenceClient, BasePolicy):
     """

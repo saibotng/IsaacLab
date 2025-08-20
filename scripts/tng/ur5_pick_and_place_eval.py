@@ -17,145 +17,18 @@ Changes compared to the previous draft
 Assumptions & integration points are unchanged – replace ``load_rfm``
 with your actual model loader.
 """
-from typing import Any, Dict, Optional, Union
-from pydantic import BaseModel
-from abc import ABC, abstractmethod
-import zmq
-from io import BytesIO
+from utils.gr00t_inference_client import RobotInferenceClient
 import numpy as np
 import torch
 from collections import deque
-
-class ModalityConfig(BaseModel):
-    """Configuration for a modality."""
-
-    delta_indices: list[int]
-    """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""
-    modality_keys: list[str]
-    """The keys to load for the modality in the dataset."""
-
-
-class BasePolicy(ABC):
-    @abstractmethod
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Abstract method to get the action for a given state.
-
-        Args:
-            observations: The observations from the environment.
-
-        Returns:
-            The action to take in the environment in dictionary format.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        """
-        Return the modality config of the policy.
-        """
-        raise NotImplementedError
-
-class TorchSerializer:
-    @staticmethod
-    def to_bytes(data: dict) -> bytes:
-        buffer = BytesIO()
-        torch.save(data, buffer)
-        return buffer.getvalue()
-
-    @staticmethod
-    def from_bytes(data: bytes) -> dict:
-        buffer = BytesIO(data)
-        obj = torch.load(buffer, weights_only=False)
-        return obj
-    
-class BaseInferenceClient:
-    def __init__(
-        self,
-        host: str = "localhost",
-        port: int = 5555,
-        timeout_ms: int = 15000,
-        api_token: str = None,
-    ):
-        self.context = zmq.Context()
-        self.host = host
-        self.port = port
-        self.timeout_ms = timeout_ms
-        self.api_token = api_token
-        self._init_socket()
-
-    def _init_socket(self):
-        """Initialize or reinitialize the socket with current settings"""
-        self.socket = self.context.socket(zmq.REQ)
-        self.socket.connect(f"tcp://{self.host}:{self.port}")
-
-    def ping(self) -> bool:
-        try:
-            self.call_endpoint("ping", requires_input=False)
-            return True
-        except zmq.error.ZMQError:
-            self._init_socket()  # Recreate socket for next attempt
-            return False
-
-    def kill_server(self):
-        """
-        Kill the server.
-        """
-        self.call_endpoint("kill", requires_input=False)
-
-    def call_endpoint(
-        self, endpoint: str, data: dict | None = None, requires_input: bool = True
-    ) -> dict:
-        """
-        Call an endpoint on the server.
-
-        Args:
-            endpoint: The name of the endpoint.
-            data: The input data for the endpoint.
-            requires_input: Whether the endpoint requires input data.
-        """
-        request: dict = {"endpoint": endpoint}
-        if requires_input:
-            request["data"] = data
-        if self.api_token:
-            request["api_token"] = self.api_token
-
-        self.socket.send(TorchSerializer.to_bytes(request))
-        message = self.socket.recv()
-        response = TorchSerializer.from_bytes(message)
-
-        if "error" in response:
-            raise RuntimeError(f"Server error: {response['error']}")
-        return response
-
-    def __del__(self):
-        """Cleanup resources on destruction"""
-        self.socket.close()
-        self.context.term()
-
-class RobotInferenceClient(BaseInferenceClient, BasePolicy):
-    """
-    Client for communicating with the RealRobotServer
-    """
-
-    def __init__(self, host: str = "localhost", port: int = 5555, api_token: str = None):
-        super().__init__(host=host, port=port, api_token=api_token)
-
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        return self.call_endpoint("get_action", observations)
-
-    def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        return self.call_endpoint("get_modality_config", requires_input=False)
-
-
-
 import argparse
-
 from isaaclab.app import AppLauncher
+
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
 parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
@@ -191,6 +64,7 @@ simulation_app = app_launcher.app
 # ------------------------------------------------------------------
 
 
+
 import importlib
 from pathlib import Path
 from typing import Tuple
@@ -200,6 +74,7 @@ import gymnasium as gym
 import torch
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
 import time
+
 
 
 
@@ -215,9 +90,7 @@ def maybe_snap_gripper_actions(gripper_actions):
         return [x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions]
     return gripper_actions
 
-
-
-def convert_raw_abs_action_to_action_chunk(action):
+def convert_raw_abs_action_to_action_chunk(action) -> torch.Tensor:
     gripper_actions = maybe_snap_gripper_actions(action["action.gripper"])
     gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
     arm_arr = action["action.robot_arm"]
@@ -225,7 +98,7 @@ def convert_raw_abs_action_to_action_chunk(action):
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
-def convert_raw_delta_action_to_action_chunk(action, observation):
+def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tensor:
     gripper_deltas = action["action.delta_gripper"]
     arm_deltas = action["action.delta_robot_arm"]
 
@@ -243,77 +116,83 @@ def convert_raw_delta_action_to_action_chunk(action, observation):
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
-def request_rfm_server(env_obs: dict) -> None:
-        rfm_obs = {
+def convert_observations_to_gr00t_format(env_obs: dict):
+        gr00t_obs = {
             "video.camera_wrist": env_obs["cameras"][:, :, 6:].cpu().unsqueeze(0).numpy(),
             "video.camera_global_side": env_obs["cameras"][:, :, 3:6].cpu().unsqueeze(0).numpy(),
             "video.camera_global_front": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
             "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
             "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
-            #"state.delta_robot_arm": env_obs["delta_joints"][:6].cpu().unsqueeze(0).numpy(),
-            #"state.delta_gripper": env_obs["delta_joints"][6:7].cpu().unsqueeze(0).numpy(),
             "annotation.human.action.task_description": [TASK_DESCRIPTION],
         }
-        
-        action = zmq_client_call(rfm_obs)
+        return gr00t_obs
 
-        for key, value in action.items():
+def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch.Tensor:
+        for key, value in gr00t_action.items():
             print(f"Action: {key}: {value.shape}")
-
         if DELTA_ACTIONS:
-            action_chunk = convert_raw_delta_action_to_action_chunk(action, rfm_obs)
+            action_chunk = convert_raw_delta_action_to_action_chunk(gr00t_action, gr00t_obs)
         else:
-            action_chunk = convert_raw_abs_action_to_action_chunk(action)
-
+            action_chunk = convert_raw_abs_action_to_action_chunk(gr00t_action)
         return action_chunk
-
-def zmq_client_call(obs: dict):
-    policy_client = RobotInferenceClient(host="localhost", port=5555, api_token=None)
-
-    print("Available modality config available:")
-    modality_configs = policy_client.get_modality_config()
-    print(modality_configs.keys())
-
-    time_start = time.time()
-    action = policy_client.get_action(obs)
-    print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
-    return action
 
 
 class ActionBuffer:
 
     def __init__(self, num_envs: int, chunk_size: int, action_horizon: int, action_dim: int, device: torch.device):
         self.num_envs = num_envs
-        self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
-        self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)  
         self.chunk_size = chunk_size
         self.action_horizon = action_horizon
         self.action_dim = action_dim
+        self.device = device
+
+        self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
+        self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
-        self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)  
+        self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)
 
     def needs_refill(self) -> torch.Tensor:
         return self.last_action_reached
  
-    def refill(self, new_chunk: torch.Tensor):
-        if new_chunk.shape != self.buffer.shape:
-            raise ValueError(
-                f"Chunk shape {new_chunk.shape} does not match buffer shape {self.buffer.shape}."
-            )
-        self.buffer.copy_(new_chunk)
-        self.ptr.zero_()
-        self.current_target.copy_(new_chunk[:, 0, :])
+    def refill(self, mask: torch.Tensor, new_chunk: torch.Tensor):
+        if mask.ndim != 1 or mask.shape[0] != self.num_envs:
+            raise ValueError("mask must be shape [num_envs]")
+
+        m = mask.sum().item()
+        if m == 0:
+            return
+
+        # normalize new_chunk shape
+        if new_chunk.shape == (m, self.chunk_size, self.action_dim):
+            src = new_chunk
+        else:
+            raise ValueError(f"new_chunk shape {tuple(new_chunk.shape)} incompatible with mask and buffer")
+
+        # write only masked rows
+        self.buffer[mask] = src
+        self.ptr[mask] = 0
+        self.current_target[mask] = self.buffer[mask, 0, :]
+        # If chunk_size==1 we immediately need a refill after executing this target once.
+        self.last_action_reached[mask] = (self.chunk_size == 1)
+
 
     def update_targets(self, update_mask: torch.Tensor):
+        at_last_now = update_mask & (self.ptr == (self.action_horizon - 1))
+        if at_last_now.any():
+            self.last_action_reached[at_last_now] = True
+
         can_advance = update_mask & (self.ptr < self.action_horizon - 1)
-        self.last_action_reached = update_mask & (self.ptr == self.action_horizon - 1)
         if can_advance.any():
             self.ptr[can_advance] += 1
             next_idx = self.ptr[can_advance]
             self.current_target[can_advance] = self.buffer[can_advance, next_idx, :]
         
     def reset(self, done_mask: torch.Tensor):
+        if not done_mask.any():
+            return
         self.buffer[done_mask] = 0
+        self.current_target[done_mask] = 0
+        self.ptr[done_mask] = self.chunk_size
         self.last_action_reached[done_mask] = True
 
     @property
@@ -326,8 +205,10 @@ def main(argv: list[str] | None = None) -> None:
         "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0",
         device=args.device,
         use_fabric=not args.disable_fabric,
-        num_envs=1
+        num_envs=args.num_envs
     )
+
+    gr00t_client: RobotInferenceClient = RobotInferenceClient(host="localhost", port=5555)
 
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
     obs, _ = env.reset()
@@ -350,55 +231,43 @@ def main(argv: list[str] | None = None) -> None:
             refill_mask = buffer.needs_refill()
 
             if refill_mask.any():
-                new_chunk = torch.zeros(num_envs, args.chunk_size, action_dim, device=device)
+                full_obs = env.unwrapped.observation_manager.compute()
+                env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+                new_chunk = torch.empty(len(env_ids), args.chunk_size, action_dim, device=device)
 
-                for env_idx in range(num_envs):
+                for k, env_idx in enumerate(env_ids):
+                    env_obs = {
+                        "cameras": full_obs["cameras"][env_idx],
+                        "joints":  full_obs["joints"]["joint_pos"][env_idx],
+                    }
+                    gr00t_obs = convert_observations_to_gr00t_format(env_obs)
+                    gr00t_action = gr00t_client.get_action(gr00t_obs)
+                    new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
 
-                    if refill_mask[env_idx]:
-                        obs = env.unwrapped.observation_manager.compute()
-                        env_obs = {
-                            "cameras": obs["cameras"][env_idx],
-                            "joints": obs["joints"]["joint_pos"][env_idx],
-                        }
-                        new_chunk[env_idx] = request_rfm_server(env_obs)
-
-                    else:
-                        new_chunk[env_idx] = buffer.buffer[env_idx]
-                
-                if new_chunk.shape != (num_envs, args.chunk_size, action_dim):
-                    raise ValueError(
-                        "RFM returned shape {} — expected {}".format(
-                            new_chunk.shape, (num_envs, args.chunk_size, action_dim)
-                        )
-                    )
-                
-                buffer.refill(new_chunk)
+                buffer.refill(refill_mask, new_chunk)
 
             actions = buffer.actions
             obs, _, terminated, truncated, _ = env.step(actions)
-            done_mask = terminated | truncated
+            done_mask = (terminated | truncated).to(device=device)
 
 
-            q = obs['joints']['joint_pos'].clone()  
+            q = obs['joints']['joint_pos'] 
             err_arm = torch.abs(q[:,:6] - buffer.actions[:,:6]).max(dim=-1).values  
-            err_gripper = torch.abs(q[:,6:7] - buffer.actions[:,6:7]).max(dim=-1).values
             arm_reached = err_arm < args.joint_tol
-            gripper_reached = err_gripper < args.joint_tol
-            target_reached = arm_reached
+            err_deque.append(err_arm)
 
-            err_deque.append(err_gripper + err_arm)
-            stacked_err_deque = torch.stack(list(err_deque), dim=0)
-            err_span = stacked_err_deque.max(dim=0).values - stacked_err_deque.min(dim=0).values
+            stacked_err = torch.stack(list(err_deque), dim=0)
+            err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
             action_idx_deque.append(buffer.ptr.clone())
-            stacked_action_idx_deque = torch.stack(list(action_idx_deque), dim=0)
-            action_idx_span = stacked_action_idx_deque.max(dim=0).values - stacked_action_idx_deque.min(dim=0).values
+            stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
+            action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
 
             stuck = (err_span < 1e-5) & (action_idx_span == 0)
             if stuck.any():
                 print(f"Stuck envs: {stuck.sum()} / {num_envs}")
             
-            envs_to_update_targets = target_reached | stuck
+            envs_to_update_targets = (arm_reached | stuck)
             buffer.update_targets(envs_to_update_targets)
 
             if done_mask.any():
