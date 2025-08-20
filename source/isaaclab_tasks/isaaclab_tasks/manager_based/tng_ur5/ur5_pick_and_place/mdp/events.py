@@ -31,7 +31,7 @@ def reset_root_state_uniform_nonoverlap(
     asset_a: SceneEntityCfg,
     asset_b: SceneEntityCfg,
     min_xy_dist: float = 0.15,
-    max_trials: int = 20,
+    max_trials: int = 1000,
 ):
     """
     Vectorised rejection sampler that keeps re-randomising the **root

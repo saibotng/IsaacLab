@@ -105,7 +105,7 @@ class PickPlaceSmWaitTime:
     LIFT_OBJECT = wp.constant(0.3)
     MOVE_ABOVE_TARGET = wp.constant(0.2)
     APPROACH_TARGET = wp.constant(0.3)
-    RELEASE_OBJECT = wp.constant(0.5)
+    RELEASE_OBJECT = wp.constant(0.3)
     RETRACT = wp.constant(0.8)
 
 

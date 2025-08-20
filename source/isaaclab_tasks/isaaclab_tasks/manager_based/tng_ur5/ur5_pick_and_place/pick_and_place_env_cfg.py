@@ -233,7 +233,7 @@ class TerminationsCfg_Inference:
     )
 
     success = DoneTerm(
-        func=mdp.object_reached_goal,
+        func=mdp.object_reached_goal_and_released_by_gripper
     )
 
 

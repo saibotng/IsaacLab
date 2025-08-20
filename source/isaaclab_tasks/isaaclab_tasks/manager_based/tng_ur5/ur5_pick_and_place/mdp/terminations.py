@@ -15,6 +15,7 @@ import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
+from isaaclab.sensors import FrameTransformer
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms
 
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
 
 def object_reached_goal(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.03,
+    threshold: float = 0.07,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
@@ -46,6 +47,24 @@ def object_reached_goal(
     # rewarded if the object is lifted above the threshold
     return distance < threshold
 
+def object_released_by_gripper(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.05,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+
+    # extract the used quantities (to enable type-hinting)
+
+    object: RigidObject = env.scene[object_cfg.name]
+    tcp: FrameTransformer = env.scene[ee_frame_cfg.name]
+
+    # distance of the gripper to the object: (num_envs,)
+    distance = torch.norm(tcp.data.target_pos_w[0, :, :3] - object.data.root_pos_w[:, :3], dim=1)
+
+    # rewarded if the object is released above the threshold
+    return distance > threshold
+
 def object_reached_goal_and_last_state_reached(
     env: ManagerBasedRLEnv,
     threshold: float = 0.03,
@@ -62,5 +81,19 @@ def object_reached_goal_and_last_state_reached(
     return done
 
 
+def object_reached_goal_and_released_by_gripper(
+    env: ManagerBasedRLEnv,
+    threshold_goal: float = 0.03,
+    threshold_release: float = 0.07,
+    target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
 
+    object_at_goal = object_reached_goal(env, threshold_goal, target_cfg, object_cfg)
+    released = object_released_by_gripper(env, threshold_release, object_cfg, ee_frame_cfg)
+    done = object_at_goal & released
+    if done.sum() > 0:
+        print(f"Object reached goal and released by gripper: {done.sum().item()} envs out of {env.scene.num_envs}.")
 
+    return done

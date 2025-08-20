@@ -89,10 +89,11 @@ UR5_RECORD_CFG.actuators["ur5_wrist"].damping = 80.0
 
 UR5_INFERENCE_CFG = UR5_CFG.copy()
 UR5_INFERENCE_CFG.spawn.rigid_props.disable_gravity = True
-UR5_INFERENCE_CFG.actuators["ur5_shoulder"].stiffness = 1000.0
+UR5_INFERENCE_CFG.actuators["ur5_shoulder"].stiffness = 1500.0
 UR5_INFERENCE_CFG.actuators["ur5_shoulder"].damping = 80.0
-UR5_INFERENCE_CFG.actuators["ur5_wrist"].stiffness = 1000.0
+UR5_INFERENCE_CFG.actuators["ur5_wrist"].stiffness = 1500.0
 UR5_INFERENCE_CFG.actuators["ur5_wrist"].damping = 80.0
+UR5_INFERENCE_CFG.actuators["ur5_hand"].stiffness = 5000.0
 
 
 

@@ -154,7 +154,8 @@ import argparse
 from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
-parser.add_argument("--joint_tol", type=float, default=0.005, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
+parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
@@ -203,13 +204,18 @@ import time
 
 
 TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
-DELTA_ACTIONS = False
+DELTA_ACTIONS = True
 SNAP_GRIPPER_ACTIONS = True
+GRIPPER_SNAP_THRESHOLD = 0.015
+ENFORCE_GRIPPER_DELTA = 0.001
+
 
 def maybe_snap_gripper_actions(gripper_actions):
     if SNAP_GRIPPER_ACTIONS:
-        return [x + 0.0015 if x > 0.015 else x for x in gripper_actions]
+        return [x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions]
     return gripper_actions
+
+
 
 def convert_raw_abs_action_to_action_chunk(action):
     gripper_actions = maybe_snap_gripper_actions(action["action.gripper"])
@@ -276,11 +282,12 @@ def zmq_client_call(obs: dict):
 
 class ActionBuffer:
 
-    def __init__(self, num_envs: int, chunk_size: int, action_dim: int, device: torch.device):
+    def __init__(self, num_envs: int, chunk_size: int, action_horizon: int, action_dim: int, device: torch.device):
         self.num_envs = num_envs
         self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
         self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)  
         self.chunk_size = chunk_size
+        self.action_horizon = action_horizon
         self.action_dim = action_dim
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
         self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)  
@@ -298,8 +305,8 @@ class ActionBuffer:
         self.current_target.copy_(new_chunk[:, 0, :])
 
     def update_targets(self, update_mask: torch.Tensor):
-        can_advance = update_mask & (self.ptr < self.chunk_size - 1)
-        self.last_action_reached = update_mask & (self.ptr == self.chunk_size - 1)
+        can_advance = update_mask & (self.ptr < self.action_horizon - 1)
+        self.last_action_reached = update_mask & (self.ptr == self.action_horizon - 1)
         if can_advance.any():
             self.ptr[can_advance] += 1
             next_idx = self.ptr[can_advance]
@@ -319,6 +326,7 @@ def main(argv: list[str] | None = None) -> None:
         "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0",
         device=args.device,
         use_fabric=not args.disable_fabric,
+        num_envs=1
     )
 
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
@@ -328,8 +336,8 @@ def main(argv: list[str] | None = None) -> None:
     action_dim: int = env.unwrapped.action_space.shape[-1]
     device: torch.device = env.unwrapped.device
 
-    buffer = ActionBuffer(num_envs, args.chunk_size, action_dim, device)
-   
+    buffer = ActionBuffer(num_envs, args.chunk_size, args.action_horizon, action_dim, device)
+
     err_deque = deque(maxlen=4)
     err_deque.append(torch.zeros(num_envs, device=device)) 
 
@@ -372,10 +380,13 @@ def main(argv: list[str] | None = None) -> None:
 
 
             q = obs['joints']['joint_pos'].clone()  
-            err = torch.abs(q - buffer.actions).max(dim=-1).values  
-            reached = err < args.joint_tol
+            err_arm = torch.abs(q[:,:6] - buffer.actions[:,:6]).max(dim=-1).values  
+            err_gripper = torch.abs(q[:,6:7] - buffer.actions[:,6:7]).max(dim=-1).values
+            arm_reached = err_arm < args.joint_tol
+            gripper_reached = err_gripper < args.joint_tol
+            target_reached = arm_reached
 
-            err_deque.append(err)
+            err_deque.append(err_gripper + err_arm)
             stacked_err_deque = torch.stack(list(err_deque), dim=0)
             err_span = stacked_err_deque.max(dim=0).values - stacked_err_deque.min(dim=0).values
 
@@ -387,7 +398,7 @@ def main(argv: list[str] | None = None) -> None:
             if stuck.any():
                 print(f"Stuck envs: {stuck.sum()} / {num_envs}")
             
-            envs_to_update_targets = reached | stuck
+            envs_to_update_targets = target_reached | stuck
             buffer.update_targets(envs_to_update_targets)
 
             if done_mask.any():
