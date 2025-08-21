@@ -72,7 +72,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, 0], rot=[0.707, 0, 0, 0.707]),
         spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/Stand/stand_instanceable.usd", scale=(1.55, 1.55, 1.55)),
     )
-    
+
 
     # Table
     table = AssetBaseCfg(
@@ -274,11 +274,30 @@ class ObservationsCfg:
             self.enable_corruption = False
             self.concatenate_terms = True
 
+    @configclass
+    class RigidObjectsObsCfg(ObsGroup):
+        object_pose = ObsTerm(func=mdp.rigid_object_pose_in_env_root_frame, params={"object_cfg": SceneEntityCfg("object")})
+        target_pose = ObsTerm(func=mdp.rigid_object_pose_in_env_root_frame, params={"object_cfg": SceneEntityCfg("target_object")})
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
+
+    @configclass
+    class SubtaskObsCfg(ObsGroup):
+        pass
+        # subtask_progress = ObsTerm(func=mdp.subtask_progress)
+
+        # def __post_init__(self):
+        #     self.enable_corruption = False
+        #     self.concatenate_terms = False
+
     # observation groups
     arm_joints: ArmJointObsCfg = ArmJointObsCfg()
     gripper_joint: GripperJointObsCfg = GripperJointObsCfg()
     cameras: CameraObsCfg = CameraObsCfg()
     end_effector: EndEffectorObsCfg = EndEffectorObsCfg()
+    rigid_objects: RigidObjectsObsCfg = RigidObjectsObsCfg()
 
 
 class ObservationRecorder(RecorderTerm):
@@ -287,12 +306,12 @@ class ObservationRecorder(RecorderTerm):
     ObservationManager buffered this step.
     """
     def record_pre_step(self):
-        obs = self._env.obs_buf 
+        obs = self._env.obs_buf
         obs_dict = {
             "arm_joints_pos_state": obs["arm_joints"]["arm_joint_pos"],
             "gripper_joint_pos_state": obs["gripper_joint"]["gripper_joint_pos"],
             "tcp_pose_state": obs["end_effector"],
-            
+
             "camera_global_front": obs["cameras"]["camera_global_front"],
             "camera_global_side": obs["cameras"]["camera_global_side"],
             "camera_wrist": obs["cameras"]["camera_wrist"],
@@ -304,7 +323,7 @@ class ObservationRecorder(RecorderTerm):
         ) for k, v in obs_dict.items()}
 
         return "obs_pre", obs_dict_cpu
-    
+
     def record_post_step(self):
         obs = self._env.obs_buf
         obs_dict = {

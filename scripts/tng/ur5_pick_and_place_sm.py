@@ -371,19 +371,13 @@ def main():
     )
     # create environment
     env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
-    # reset environment at start
-    env.reset()
 
-    # create action buffers (position + quaternion)
-    actions = torch.zeros(env.unwrapped.action_space.shape, device=env.unwrapped.device)
-    actions[:, 3] = 1.0
-    # desired object orientation (we only do position control of object)
-    desired_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
-    # rotate 90 defrees around z axis
-    desired_orientation[:, 0] = 0.0
-    desired_orientation[:, 1] = 0.70710678118
-    desired_orientation[:, 2] = -0.70710678118
-    desired_orientation[:, 3] = 0.0
+    obs, _ = env.reset()
+    home_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
+    home_orientation[:, 0] = 0.0
+    home_orientation[:, 1] = 0.70710678118
+    home_orientation[:, 2] = -0.70710678118
+    home_orientation[:, 3] = 0.0
 
     # create state machine
     pick_sm = PickAndPlaceSm(
@@ -395,37 +389,21 @@ def main():
             # run everything in inference mode
             with torch.inference_mode():
                 env.unwrapped.extras["state"] = pick_sm.sm_state
-                # step environment
-                env.step(actions)[-2]
 
-                # observations
-                # -- end-effector frame
-                ee_frame_sensor = env.unwrapped.scene["ee_frame"]
-                tcp_rest_position = ee_frame_sensor.data.target_pos_w[..., 0, :].clone() - env.unwrapped.scene.env_origins
-                tcp_rest_orientation = ee_frame_sensor.data.target_quat_w[..., 0, :].clone()
-                # -- object frame
-                object_data: RigidObjectData = env.unwrapped.scene["object"].data
-                object_position = object_data.root_pos_w - env.unwrapped.scene.env_origins
-                object_orientation = object_data.root_quat_w
-                # -- target object frame
-                target_object_data: RigidObjectData = env.unwrapped.scene["target_object"].data
+                tcp_pose = obs["end_effector"]
+                object_pose = obs["rigid_objects"]["object_pose"]
+                target_pose = obs["rigid_objects"]["target_pose"]
 
-                target_object_position = target_object_data.root_pos_w - env.unwrapped.scene.env_origins
-                target_object_orientation = target_object_data.root_quat_w
-
-                # advance state machine
                 actions = pick_sm.compute(
-                    torch.cat([tcp_rest_position, tcp_rest_orientation], dim=-1),
-                    torch.cat([object_position, object_orientation], dim=-1),
-                    torch.cat([target_object_position, target_object_orientation], dim=-1),
+                    tcp_pose, object_pose, target_pose
                 )
 
-                # reset state machine
-                dones = env.unwrapped.termination_manager.terminated
-                if dones.any():
-                    done_counter += sum(dones)
+                obs, _, terminated, truncated, _ = env.step(actions)
+
+                if terminated.any():
+                    done_counter += sum(terminated)
                     print(f"Done counter: {done_counter}")
-                    pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
+                    pick_sm.reset_idx(terminated.nonzero(as_tuple=False).squeeze(-1))
     finally:
         # close the environment
         try: env.close()

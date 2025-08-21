@@ -12,7 +12,7 @@ from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import subtract_frame_transforms
 from isaaclab.sensors import FrameTransformer
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_STATE_DESCRIPTOR, GRIPPER_JOINTS
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_JOINTS
 from isaaclab.assets import Articulation
 
 if TYPE_CHECKING:
@@ -30,6 +30,17 @@ def object_position_in_robot_root_frame(
     object_pos_w = object.data.root_pos_w[:, :3]
     object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, object_pos_w)
     return object_pos_b
+
+def rigid_object_pose_in_env_root_frame(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """The pose of the object in the environment's root frame."""
+    object: RigidObject = env.scene[object_cfg.name]
+    object_pos_w = object.data.root_pos_w - env.scene.env_origins
+    object_quat_w = object.data.root_quat_w
+    return torch.cat([object_pos_w, object_quat_w], dim=-1)
+
 
 def ee_frame_position(env: ManagerBasedRLEnv, ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame")) -> torch.Tensor:
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
