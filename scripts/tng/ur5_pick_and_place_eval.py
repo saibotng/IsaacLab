@@ -33,6 +33,7 @@ parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑p
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
 parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
+parser.add_argument("--gripper_vel_tol", type=float, default=0.01, help="Gripper velocity tolerance (rad/m)")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -109,9 +110,8 @@ def main(argv: list[str] | None = None) -> None:
                 stacked_err = torch.stack(list(err_deque), dim=0)
                 err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
-                #TODO: gripper reached with gripper joint velocity threshold
-                #gripper_vel = obs['joints']['joint_vel'][:, 6]
-                #gripper_reached = (gripper_vel.abs() < args.joint_tol).to(device=device)
+                gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
+                gripper_reached = (gripper_vel.abs() < args.gripper_vel_tol).to(device=device)
 
                 action_idx_deque.append(buffer.ptr.clone())
                 stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> None:
 
                 arm_reached = err_arm < args.joint_tol
                 stuck = (err_span < 1e-5) & (action_idx_span == 0)
-                envs_to_update_targets = (arm_reached | stuck)
+                envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
 
                 buffer.maybe_update_targets(envs_to_update_targets)
                 buffer.maybe_reset_buffer(done_mask)
