@@ -123,16 +123,14 @@ class EventCfg_SM:
     #randomize_fixed_tendon_parameters
     #randomize orientations
 
-
-
     reset_objects = EventTerm(
-        func= mdp.reset_root_state_uniform_nonoverlap,
+        func=mdp.randomize_object_pose,
         mode="reset",
         params={
             "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (55 * (pi / 180), 125 * (pi / 180))},
-            "velocity_range": {},
-            "asset_a": SceneEntityCfg("object", body_names="Object"),
-            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
+            "min_separation": 0.15,
+            "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
+            "max_sample_tries": 5000,
         },
     )
     reset_joints = EventTerm(
@@ -149,15 +147,16 @@ class EventCfg_Inference(EventCfg_SM):
     """Configuration for events."""
 
     reset_objects = EventTerm(
-        func= mdp.reset_root_state_uniform_nonoverlap,
+        func=mdp.randomize_object_pose,
         mode="reset",
         params={
             "pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
-            "velocity_range": {},
-            "asset_a": SceneEntityCfg("object", body_names="Object"),
-            "asset_b": SceneEntityCfg("target_object", body_names="Target"),
+            "min_separation": 0.15,
+            "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
+            "max_sample_tries": 5000,
         },
     )
+    
     reset_joints = EventTerm(
         func=reset_joints_by_degree,
         mode="reset",

@@ -24,58 +24,44 @@ if TYPE_CHECKING:
 
 from isaaclab.envs.mdp import reset_root_state_uniform
 
-def reset_root_state_uniform_nonoverlap(
+
+
+def randomize_object_pose(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
-    pose_range: dict,
-    velocity_range: dict,
-    asset_a: SceneEntityCfg,
-    asset_b: SceneEntityCfg,
-    min_xy_dist: float = 0.15,
-    max_trials: int = 1000,
+    asset_cfgs: list[SceneEntityCfg],
+    min_separation: float = 0.0,
+    pose_range: dict[str, tuple[float, float]] = {},
+    max_sample_tries: int = 5000,
 ):
-    """
-    Vectorised rejection sampler that keeps re-randomising the **root
-    states** of `asset_a` (Object) and `asset_b` (Target) until their
-    XY separation is ≥ `min_xy_dist`.
-    """
     if env_ids is None:
-        env_ids = slice(None)
-    
-    device = env.unwrapped.device
-    env_ids = torch.as_tensor(env_ids, device=device)
-    
-    # Sample asset_a first (this stays fixed)
-    reset_root_state_uniform(
-        env, env_ids, pose_range, velocity_range, asset_cfg=asset_a
-    )
-    
-    # Now iteratively sample asset_b until no conflicts
-    ids_left = env_ids.clone()
-    
-    for trial in range(max_trials):
-        if len(ids_left) == 0:
-            break
-            
-        # Sample asset_b only for environments that still have conflicts
-        reset_root_state_uniform(
-            env, ids_left, pose_range, velocity_range, asset_cfg=asset_b
-        )
-        
-        # Check distances for the remaining environments
-        pos_a = env.scene[asset_a.name].data.root_pos_w[ids_left, :2]
-        pos_b = env.scene[asset_b.name].data.root_pos_w[ids_left, :2]
-        dist = torch.linalg.norm(pos_a - pos_b, dim=-1)
-        
-        # Keep only envs that are still too close
-        mask_bad = dist < min_xy_dist
-        ids_left = ids_left[mask_bad]
-    
-    # Fallback for any remaining conflicts
-    if len(ids_left) > 0:
-        env.scene[asset_b.name].data.root_pos_w[ids_left, 0] += min_xy_dist
-        print(f"Applied fallback X-shift to {len(ids_left)} environments")
+        return
 
+    # Randomize poses in each environment independently
+    for cur_env in env_ids.tolist():
+        pose_list = sample_object_poses(
+            num_objects=len(asset_cfgs),
+            min_separation=min_separation,
+            pose_range=pose_range,
+            max_sample_tries=max_sample_tries,
+        )
+
+        # Randomize pose for each object
+        for i in range(len(asset_cfgs)):
+            asset_cfg = asset_cfgs[i]
+            asset = env.scene[asset_cfg.name]
+            root_states = asset.data.default_root_state[env_ids].clone()
+
+            # Write pose to simulation
+            pose_tensor = torch.tensor([pose_list[i]], device=env.device)
+            positions = pose_tensor[:, 0:3] + env.scene.env_origins[cur_env, 0:3] + root_states[0, 0:3]
+            orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
+            asset.write_root_pose_to_sim(
+                torch.cat([positions, orientations], dim=-1), env_ids=torch.tensor([cur_env], device=env.device)
+            )
+            asset.write_root_velocity_to_sim(
+                torch.zeros(1, 6, device=env.device), env_ids=torch.tensor([cur_env], device=env.device)
+            )
 
 def sample_object_poses(
     num_objects: int,
