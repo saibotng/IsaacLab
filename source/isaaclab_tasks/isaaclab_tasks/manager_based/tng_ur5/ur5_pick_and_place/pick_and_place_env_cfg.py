@@ -285,12 +285,13 @@ class ObservationsCfg:
 
     @configclass
     class SubtaskObsCfg(ObsGroup):
-        pass
-        # subtask_progress = ObsTerm(func=mdp.subtask_progress)
+        object_reached_target = ObsTerm(func=mdp.object_reached_goal)
+        object_lifted = ObsTerm(func=mdp.object_lifted)
+        object_in_gripper_reach = ObsTerm(func=mdp.object_in_gripper_reach)
 
-        # def __post_init__(self):
-        #     self.enable_corruption = False
-        #     self.concatenate_terms = False
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
 
     # observation groups
     arm_joints: ArmJointObsCfg = ArmJointObsCfg()
@@ -298,6 +299,7 @@ class ObservationsCfg:
     cameras: CameraObsCfg = CameraObsCfg()
     end_effector: EndEffectorObsCfg = EndEffectorObsCfg()
     rigid_objects: RigidObjectsObsCfg = RigidObjectsObsCfg()
+    subtasks: SubtaskObsCfg = SubtaskObsCfg()
 
 
 class ObservationRecorder(RecorderTerm):

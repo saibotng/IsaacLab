@@ -14,9 +14,54 @@ from isaaclab.utils.math import subtract_frame_transforms
 from isaaclab.sensors import FrameTransformer
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_JOINTS
 from isaaclab.assets import Articulation
+from isaacsim.core.prims.impl.xform_prim import XFormPrim
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+def object_reached_goal(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.05,
+    target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+
+    object: RigidObject = env.scene[object_cfg.name]
+    target: RigidObject = env.scene[target_cfg.name]
+    distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
+    return distance < threshold
+
+def object_lifted(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.05,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    table_name = "Table"
+) -> torch.Tensor:
+
+    object: RigidObject = env.scene[object_cfg.name]
+    table_view = XFormPrim(prim_paths_expr=f"{env.scene.env_regex_ns}/{table_name}")
+    table_pos, _ = table_view.get_local_poses()
+    height_above_table = torch.norm(table_pos[:, 2:3] - object.data.root_pos_w[:, 2:3], dim=1)
+    return height_above_table > threshold
+
+def object_in_gripper_reach(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.06,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+
+    # extract the used quantities (to enable type-hinting)
+
+    object: RigidObject = env.scene[object_cfg.name]
+    tcp: FrameTransformer = env.scene[ee_frame_cfg.name]
+
+    # distance of the gripper to the object: (num_envs,)
+    distance = torch.norm(tcp.data.target_pos_w[:, 0, :3] - object.data.root_pos_w[:, :3], dim=1)
+
+    # rewarded if the object is released above the threshold
+    return distance < threshold
 
 
 def object_position_in_robot_root_frame(

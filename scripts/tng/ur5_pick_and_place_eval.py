@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑p
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
 parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
-parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
@@ -195,13 +195,19 @@ def main(argv: list[str] | None = None) -> None:
                 buffer.maybe_reset_buffer(done_mask)
                 
 
-                if stuck.any():
-                    print(f"Stuck env IDs: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
+
+                    
 
                 if done_mask.any():
                     done_counter += sum(done_mask)
                     success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
-                    print(f"Successful terminations: {success_counter} / {done_counter}")
+
+                print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
+                print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
+                print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
+                print(f"Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
+                print(f"Successful terminations: {success_counter} / {done_counter}")
+                    
 
 
     finally:
