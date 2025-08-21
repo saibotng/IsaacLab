@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 def object_reached_goal(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.07,
+    threshold: float = 0.08,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
@@ -49,7 +49,7 @@ def object_reached_goal(
 
 def object_released_by_gripper(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.05,
+    threshold: float = 0.08,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
@@ -60,7 +60,7 @@ def object_released_by_gripper(
     tcp: FrameTransformer = env.scene[ee_frame_cfg.name]
 
     # distance of the gripper to the object: (num_envs,)
-    distance = torch.norm(tcp.data.target_pos_w[0, :, :3] - object.data.root_pos_w[:, :3], dim=1)
+    distance = torch.norm(tcp.data.target_pos_w[:, 0, :3] - object.data.root_pos_w[:, :3], dim=1)
 
     # rewarded if the object is released above the threshold
     return distance > threshold
@@ -76,15 +76,15 @@ def object_reached_goal_and_last_state_reached(
     last_state_reached = env.extras["state"] == 9
     done = object_at_goal & last_state_reached
     if done.sum() > 0:
-        print(f"Object reached goal and last state reached: {done.sum().item()} envs out of {env.scene.num_envs}.")
+        print(f"Object reached goal and last state reached: IDs {done.nonzero(as_tuple=False).squeeze(-1).tolist()} envs out of {env.scene.num_envs}.")
 
     return done
 
 
 def object_reached_goal_and_released_by_gripper(
     env: ManagerBasedRLEnv,
-    threshold_goal: float = 0.03,
-    threshold_release: float = 0.07,
+    threshold_goal: float = 0.07,
+    threshold_release: float = 0.08,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
@@ -94,6 +94,6 @@ def object_reached_goal_and_released_by_gripper(
     released = object_released_by_gripper(env, threshold_release, object_cfg, ee_frame_cfg)
     done = object_at_goal & released
     if done.sum() > 0:
-        print(f"Object reached goal and released by gripper: {done.sum().item()} envs out of {env.scene.num_envs}.")
+        print(f"Object reached goal and released by gripper: IDs {done.nonzero(as_tuple=False).squeeze(-1).tolist()}.")
 
     return done
