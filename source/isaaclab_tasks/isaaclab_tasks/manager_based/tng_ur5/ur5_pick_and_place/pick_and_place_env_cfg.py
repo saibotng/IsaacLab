@@ -110,29 +110,7 @@ class ActionsCfg:
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
 
 
-@configclass
-class ObservationsCfg:
-    """Observation specifications for the MDP."""
 
-    @configclass
-    class JointObsCfg(ObsGroup):
-        """Observations for policy group."""
-
-        joint_pos = ObsTerm(func=mdp.joint_pos)
-        joint_vel = ObsTerm(func=mdp.joint_vel)
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = False
-
-    class CameraObsCfg(ObsGroup):
-        camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist"), "normalize": False})
-        camera_global_front = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_front"), "normalize": False})
-        camera_global_side = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_side"), "normalize": False})
-
-    # observation groups
-    joints: JointObsCfg = JointObsCfg()
-    cameras: CameraObsCfg = CameraObsCfg()
 
 
 @configclass
@@ -256,6 +234,51 @@ class CurriculumCfg:
 # Environment configuration
 ##
 
+@configclass
+class ObservationsCfg:
+    """Observation specifications for the MDP."""
+
+    @configclass
+    class ArmJointObsCfg(ObsGroup):
+        """Observations for policy group."""
+
+        arm_joint_pos = ObsTerm(func=mdp.arm_joint_pos)
+        arm_joint_vel = ObsTerm(func=mdp.arm_joint_vel)
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
+    @configclass
+    class GripperJointObsCfg(ObsGroup):
+        gripper_joint_pos = ObsTerm(func=mdp.gripper_joint_pos)
+        gripper_joint_vel = ObsTerm(func=mdp.gripper_joint_vel)
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
+    @configclass
+    class CameraObsCfg(ObsGroup):
+        camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist"), "normalize": False})
+        camera_global_front = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_front"), "normalize": False})
+        camera_global_side = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_side"), "normalize": False})
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
+    @configclass
+    class EndEffectorObsCfg(ObsGroup):
+        end_effector_pos = ObsTerm(func=mdp.ee_frame_position, params={"ee_frame_cfg": SceneEntityCfg("ee_frame")})
+        end_effector_quat = ObsTerm(func=mdp.ee_frame_orientation, params={"ee_frame_cfg": SceneEntityCfg("ee_frame")})
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    # observation groups
+    arm_joints: ArmJointObsCfg = ArmJointObsCfg()
+    gripper_joint: GripperJointObsCfg = GripperJointObsCfg()
+    cameras: CameraObsCfg = CameraObsCfg()
+    end_effector: EndEffectorObsCfg = EndEffectorObsCfg()
 
 
 class ObservationRecorder(RecorderTerm):
@@ -264,17 +287,15 @@ class ObservationRecorder(RecorderTerm):
     ObservationManager buffered this step.
     """
     def record_pre_step(self):
-        # The observation manager stores the last obs in `_obs_buffer` :contentReference[oaicite:0]{index=0}
-        obs = self._env.observation_manager.compute()     # 1 μs call, returns dict
-        # Move to CPU so HDF5 export happens from host memory
-        
+        obs = self._env.obs_buf 
         obs_dict = {
-            "joints_pos_state": obs["joints"]["joint_pos"][:, :-1],
-            "joints_vel_state": obs["joints"]["joint_vel"][:, :-1],
-   
-            "camera_global_front": obs["cameras"][:, :, :, 0:3],
-            "camera_global_side": obs["cameras"][:, :, :, 3:6],
-            "camera_wrist": obs["cameras"][:, :, :, 6:],
+            "arm_joints_pos_state": obs["arm_joints"]["arm_joint_pos"],
+            "gripper_joint_pos_state": obs["gripper_joint"]["gripper_joint_pos"],
+            "tcp_pose_state": obs["end_effector"],
+            
+            "camera_global_front": obs["cameras"]["camera_global_front"],
+            "camera_global_side": obs["cameras"]["camera_global_side"],
+            "camera_wrist": obs["cameras"]["camera_wrist"],
         }
 
         obs_dict_cpu = {k: (
@@ -285,9 +306,11 @@ class ObservationRecorder(RecorderTerm):
         return "obs_pre", obs_dict_cpu
     
     def record_post_step(self):
-        obs = self._env.observation_manager.compute_group(group_name="joints")  
+        obs = self._env.obs_buf
         obs_dict = {
-            "joints_pos_action": obs["joint_pos"][:, :-1],
+            "arm_joints_pos_action": obs["arm_joints"]["arm_joint_pos"],
+            "gripper_joint_pos_action": obs["gripper_joint"]["gripper_joint_pos"],
+            "tcp_pose_action": obs["end_effector"]
         }
         obs_dict_cpu = {k: (
             v.cpu() if torch.is_tensor(v)

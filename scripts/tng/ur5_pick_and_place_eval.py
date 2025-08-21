@@ -101,13 +101,13 @@ def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tenso
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
-def convert_observations_to_gr00t_format(env_obs: dict):
+def extract_gr00t_obs_from_full_obs(full_obs: dict, env_idx):
         gr00t_obs = {
-            "video.camera_wrist": env_obs["cameras"][:, :, 6:].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_side": env_obs["cameras"][:, :, 3:6].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_front": env_obs["cameras"][:, :, :3].cpu().unsqueeze(0).numpy(),
-            "state.robot_arm": env_obs["joints"][:6].cpu().unsqueeze(0).numpy(),
-            "state.gripper": env_obs["joints"][6:7].cpu().unsqueeze(0).numpy(),
+            "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
+            "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
+            "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
             "annotation.human.action.task_description": [TASK_DESCRIPTION],
         }
         return gr00t_obs
@@ -128,11 +128,7 @@ def maybe_get_new_actions(buffer: ActionBuffer, env, gr00t_client: RobotInferenc
     env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
     new_chunk = torch.empty(len(env_ids), args.chunk_size, buffer.action_dim, device=buffer.device)
     for k, env_idx in enumerate(env_ids):
-        env_obs = {
-            "cameras": full_obs["cameras"][env_idx],
-            "joints":  full_obs["joints"]["joint_pos"][env_idx],
-        }
-        gr00t_obs = convert_observations_to_gr00t_format(env_obs)
+        gr00t_obs = extract_gr00t_obs_from_full_obs(full_obs, env_idx)
         gr00t_action = gr00t_client.get_action(gr00t_obs)
         new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
 
@@ -175,12 +171,17 @@ def main(argv: list[str] | None = None) -> None:
                 obs, _, terminated, truncated, _ = env.step(actions)
                 done_mask = (terminated | truncated).to(device=device)
 
-                q = obs['joints']['joint_pos'] 
+                q = obs['arm_joints']['arm_joint_pos'] 
+                number_of_arm_joints = q.shape[-1]
 
-                err_arm = torch.abs(q[:,:6] - buffer.actions[:,:6]).max(dim=-1).values  
+                err_arm = torch.abs(q - buffer.actions[:,:number_of_arm_joints]).max(dim=-1).values  
                 err_deque.append(err_arm)
                 stacked_err = torch.stack(list(err_deque), dim=0)
                 err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
+
+                #TODO: gripper reached with gripper joint velocity threshold
+                #gripper_vel = obs['joints']['joint_vel'][:, 6]
+                #gripper_reached = (gripper_vel.abs() < args.joint_tol).to(device=device)
 
                 action_idx_deque.append(buffer.ptr.clone())
                 stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
