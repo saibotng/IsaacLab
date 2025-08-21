@@ -63,77 +63,7 @@ import gymnasium as gym
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
 
 
-TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
-DELTA_ACTIONS = True
-SNAP_GRIPPER_ACTIONS = True
-GRIPPER_SNAP_THRESHOLD = 0.015
-ENFORCE_GRIPPER_DELTA = 0.001
 
-
-def maybe_snap_gripper_actions(gripper_actions):
-    if SNAP_GRIPPER_ACTIONS:
-        return [x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions]
-    return gripper_actions
-
-def convert_raw_abs_action_to_action_chunk(action) -> torch.Tensor:
-    gripper_actions = maybe_snap_gripper_actions(action["action.gripper"])
-    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
-    arm_arr = action["action.robot_arm"]
-    action_arr = np.concatenate([arm_arr, gripper_arr], axis=1)
-    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
-    return action_chunk
-
-def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tensor:
-    gripper_deltas = action["action.delta_gripper"]
-    arm_deltas = action["action.delta_robot_arm"]
-
-    gripper_state = observation["state.gripper"].squeeze()
-    arm_state = observation["state.robot_arm"].squeeze()
-
-    gripper_actions = np.cumsum(gripper_deltas, axis=0) + gripper_state
-    arm_actions     = np.cumsum(arm_deltas,     axis=0) + arm_state
-
-    gripper_actions = maybe_snap_gripper_actions(gripper_actions)
-
-    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
-
-    action_arr = np.concatenate([arm_actions, gripper_arr], axis=1)
-    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
-    return action_chunk
-
-def extract_gr00t_obs_from_full_obs(full_obs: dict, env_idx):
-        gr00t_obs = {
-            "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
-            "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-            "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-            "annotation.human.action.task_description": [TASK_DESCRIPTION],
-        }
-        return gr00t_obs
-
-def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch.Tensor:
-        if DELTA_ACTIONS:
-            action_chunk = convert_raw_delta_action_to_action_chunk(gr00t_action, gr00t_obs)
-        else:
-            action_chunk = convert_raw_abs_action_to_action_chunk(gr00t_action)
-        return action_chunk
-
-def maybe_get_new_actions(buffer: ActionBuffer, env, gr00t_client: RobotInferenceClient) -> None:
-    refill_mask = buffer.needs_refill()
-    if not refill_mask.any():
-        return
-
-    full_obs = env.unwrapped.observation_manager.compute()
-    env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
-    new_chunk = torch.empty(len(env_ids), args.chunk_size, buffer.action_dim, device=buffer.device)
-    for k, env_idx in enumerate(env_ids):
-        gr00t_obs = extract_gr00t_obs_from_full_obs(full_obs, env_idx)
-        gr00t_action = gr00t_client.get_action(gr00t_obs)
-        new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
-
-    buffer.refill(refill_mask, new_chunk)
-    return
 
 def main(argv: list[str] | None = None) -> None:
     env_cfg = parse_env_cfg(
@@ -165,7 +95,7 @@ def main(argv: list[str] | None = None) -> None:
         while simulation_app.is_running():
 
             with torch.inference_mode():
-                maybe_get_new_actions(buffer, env, gr00t_client)
+                buffer.maybe_get_new_actions(env, gr00t_client)
 
                 actions = buffer.actions
                 obs, _, terminated, truncated, _ = env.step(actions)

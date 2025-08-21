@@ -1,4 +1,62 @@
 import torch
+from .gr00t_inference_client import RobotInferenceClient
+import numpy as np
+
+DELTA_ACTIONS = True
+SNAP_GRIPPER_ACTIONS = True
+GRIPPER_SNAP_THRESHOLD = 0.015
+ENFORCE_GRIPPER_DELTA = 0.0015
+TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
+
+def maybe_snap_gripper_actions(gripper_actions):
+    if SNAP_GRIPPER_ACTIONS:
+        return [x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions]
+    return gripper_actions
+
+def convert_raw_abs_action_to_action_chunk(action) -> torch.Tensor:
+    gripper_actions = maybe_snap_gripper_actions(action["action.gripper"])
+    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
+    arm_arr = action["action.robot_arm"]
+    action_arr = np.concatenate([arm_arr, gripper_arr], axis=1)
+    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+    return action_chunk
+
+def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tensor:
+    gripper_deltas = action["action.delta_gripper"]
+    arm_deltas = action["action.delta_robot_arm"]
+
+    gripper_state = observation["state.gripper"].squeeze()
+    arm_state = observation["state.robot_arm"].squeeze()
+
+    gripper_actions = np.cumsum(gripper_deltas, axis=0) + gripper_state
+    arm_actions     = np.cumsum(arm_deltas,     axis=0) + arm_state
+
+    gripper_actions = maybe_snap_gripper_actions(gripper_actions)
+
+    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
+
+    action_arr = np.concatenate([arm_actions, gripper_arr], axis=1)
+    action_chunk = torch.from_numpy(action_arr).to(device='cuda')
+    return action_chunk
+
+def extract_gr00t_obs_from_full_obs(full_obs: dict, env_idx):
+        gr00t_obs = {
+            "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
+            "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
+            "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
+            "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
+            "annotation.human.action.task_description": [TASK_DESCRIPTION],
+        }
+        return gr00t_obs
+
+def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch.Tensor:
+        if DELTA_ACTIONS:
+            action_chunk = convert_raw_delta_action_to_action_chunk(gr00t_action, gr00t_obs)
+        else:
+            action_chunk = convert_raw_abs_action_to_action_chunk(gr00t_action)
+        return action_chunk
+
 
 class ActionBuffer:
     def __init__(self, num_envs: int, chunk_size: int, action_horizon: int, action_dim: int, device: torch.device):
@@ -11,9 +69,9 @@ class ActionBuffer:
         self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
         self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)
+        self.last_raw_action_dicts = [None for _ in range(num_envs)]
 
-    def needs_refill(self) -> torch.Tensor:
-        return self.last_action_reached
+
  
     def refill(self, mask: torch.Tensor, new_chunk: torch.Tensor):
         if mask.ndim != 1 or mask.shape[0] != self.num_envs:
@@ -55,7 +113,33 @@ class ActionBuffer:
         self.current_target[done_mask] = 0
         self.ptr[done_mask] = self.chunk_size
         self.last_action_reached[done_mask] = True
+        # Clear the last raw action dicts for reset environments
+        done_indices = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+        for idx in done_indices:
+            self.last_raw_action_dicts[idx] = None
+
+    def maybe_get_new_actions(self, env, gr00t_client: RobotInferenceClient) -> None:
+        if not self.needs_refill.any():
+            return
+
+        refill_mask = self.needs_refill.clone()
+        full_obs = env.unwrapped.observation_manager.compute()
+        env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+        new_chunk = torch.empty(len(env_ids), self.chunk_size, self.action_dim, device=self.device)
+        for k, env_idx in enumerate(env_ids):
+            gr00t_obs = extract_gr00t_obs_from_full_obs(full_obs, env_idx)
+            gr00t_action = gr00t_client.get_action(gr00t_obs)
+            new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
+            # Store the raw action dict for this environment
+            self.last_raw_action_dicts[env_idx] = gr00t_action
+
+        self.refill(refill_mask, new_chunk)
+        return
 
     @property
     def actions(self) -> torch.Tensor:
         return self.current_target
+    
+    @property
+    def needs_refill(self) -> torch.Tensor:
+        return self.last_action_reached
