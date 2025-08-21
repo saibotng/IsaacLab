@@ -152,7 +152,7 @@ class EventCfg_Inference(EventCfg_SM):
         func= mdp.reset_root_state_uniform_nonoverlap,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.15, 0.15), "y": (-0.25, 0.13), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
+            "pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
             "velocity_range": {},
             "asset_a": SceneEntityCfg("object", body_names="Object"),
             "asset_b": SceneEntityCfg("target_object", body_names="Target"),
