@@ -168,23 +168,6 @@ class EventCfg_Inference(EventCfg_SM):
     )
 
 
-@configclass
-class RewardsCfg:
-    """Reward terms for the MDP."""
-
-    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.1}, weight=1.0)
-
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=15.0)
-
-    # action penalty
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
-
-    joint_vel = RewTerm(
-        func=mdp.joint_vel_l2,
-        weight=-1e-4,
-        params={"asset_cfg": SceneEntityCfg("robot")},
-    )
-
 
 @configclass
 class TerminationsCfg_SM:
@@ -212,21 +195,6 @@ class TerminationsCfg_Inference:
 
     success = DoneTerm(
         func=mdp.object_reached_goal_and_released_by_gripper
-    )
-
-
-
-
-@configclass
-class CurriculumCfg:
-    """Curriculum terms for the MDP."""
-
-    action_rate = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000}
-    )
-
-    joint_vel = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000}
     )
 
 
@@ -371,10 +339,10 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     actions: ActionsCfg = ActionsCfg()
 
     # MDP settings
-    rewards: RewardsCfg = RewardsCfg()
     terminations = TerminationsCfg_SM()
     events = EventCfg_SM()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum = None
+    rewards = None
     recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
 
     def __post_init__(self):

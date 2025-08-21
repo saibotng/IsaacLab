@@ -17,6 +17,7 @@ from isaaclab.actuators import ImplicitActuator
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
+import random
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -74,3 +75,30 @@ def reset_root_state_uniform_nonoverlap(
     if len(ids_left) > 0:
         env.scene[asset_b.name].data.root_pos_w[ids_left, 0] += min_xy_dist
         print(f"Applied fallback X-shift to {len(ids_left)} environments")
+
+
+def sample_object_poses(
+    num_objects: int,
+    min_separation: float = 0.0,
+    pose_range: dict[str, tuple[float, float]] = {},
+    max_sample_tries: int = 5000,
+):
+    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_list = []
+
+    for i in range(num_objects):
+        for j in range(max_sample_tries):
+            sample = [random.uniform(range[0], range[1]) for range in range_list]
+
+            # Accept pose if it is the first one, or if reached max num tries
+            if len(pose_list) == 0 or j == max_sample_tries - 1:
+                pose_list.append(sample)
+                break
+
+            # Check if pose of object is sufficiently far away from all other objects
+            separation_check = [math.dist(sample[:3], pose[:3]) > min_separation for pose in pose_list]
+            if False not in separation_check:
+                pose_list.append(sample)
+                break
+
+    return pose_list
