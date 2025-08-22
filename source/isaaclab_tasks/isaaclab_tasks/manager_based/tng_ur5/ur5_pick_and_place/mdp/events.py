@@ -3,26 +3,36 @@ from __future__ import annotations
 
 import math
 import torch
-from typing import TYPE_CHECKING, Literal
-
-import carb
-import omni.physics.tensors.impl.api as physx
-import omni.usd
-from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf, Sdf, UsdGeom, Vt
-
-import isaaclab.sim as sim_utils
+from typing import TYPE_CHECKING
 import isaaclab.utils.math as math_utils
-from isaaclab.actuators import ImplicitActuator
-from isaaclab.assets import Articulation, DeformableObject, RigidObject
-from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
-from isaaclab.terrains import TerrainImporter
+from isaaclab.managers import SceneEntityCfg
 import random
+import yaml
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
-from isaaclab.envs.mdp import reset_root_state_uniform
+def set_rigid_object_poses(
+        env: ManagerBasedEnv,
+        env_id: torch.Tensor,
+        asset_cfgs: list[SceneEntityCfg],
+        pose_list: list
+): 
+    for i in range(len(asset_cfgs)):
+        asset_cfg = asset_cfgs[i]
+        asset = env.scene[asset_cfg.name]
+        root_states = asset.data.default_root_state[[env_id]].clone()
+
+        # Write pose to simulation
+        pose_tensor = torch.tensor([pose_list[i]], device=env.device)
+        positions = pose_tensor[:, 0:3] + env.scene.env_origins[env_id, 0:3] + root_states[0, 0:3]
+        orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
+        asset.write_root_pose_to_sim(
+            torch.cat([positions, orientations], dim=-1), env_ids=torch.tensor([env_id], device=env.device)
+        )
+        asset.write_root_velocity_to_sim(
+            torch.zeros(1, 6, device=env.device), env_ids=torch.tensor([env_id], device=env.device)
+        )
 
 
 
@@ -37,7 +47,6 @@ def randomize_object_pose(
     if env_ids is None:
         return
 
-    # Randomize poses in each environment independently
     for cur_env in env_ids.tolist():
         pose_list = sample_object_poses(
             num_objects=len(asset_cfgs),
@@ -45,23 +54,8 @@ def randomize_object_pose(
             pose_range=pose_range,
             max_sample_tries=max_sample_tries,
         )
+        set_rigid_object_poses(env, cur_env, asset_cfgs, pose_list)
 
-        # Randomize pose for each object
-        for i in range(len(asset_cfgs)):
-            asset_cfg = asset_cfgs[i]
-            asset = env.scene[asset_cfg.name]
-            root_states = asset.data.default_root_state[env_ids].clone()
-
-            # Write pose to simulation
-            pose_tensor = torch.tensor([pose_list[i]], device=env.device)
-            positions = pose_tensor[:, 0:3] + env.scene.env_origins[cur_env, 0:3] + root_states[0, 0:3]
-            orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
-            asset.write_root_pose_to_sim(
-                torch.cat([positions, orientations], dim=-1), env_ids=torch.tensor([cur_env], device=env.device)
-            )
-            asset.write_root_velocity_to_sim(
-                torch.zeros(1, 6, device=env.device), env_ids=torch.tensor([cur_env], device=env.device)
-            )
 
 def sample_object_poses(
     num_objects: int,

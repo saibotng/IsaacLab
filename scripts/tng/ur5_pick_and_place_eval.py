@@ -34,8 +34,9 @@ parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
 parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--gripper_vel_tol", type=float, default=0.01, help="Gripper velocity tolerance (rad/m)")
-parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=5, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
+parser.add_argument("--bench_from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
 temp_args, _ = parser.parse_known_args()
@@ -62,6 +63,8 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
+from utils.benchmark_scheduler import BenchmarkScheduler
+from isaaclab.managers import SceneEntityCfg
 
 
 
@@ -73,6 +76,16 @@ def main(argv: list[str] | None = None) -> None:
         use_fabric=not args.disable_fabric,
         num_envs=args.num_envs
     )
+    if args.bench_from_yaml:
+        scheduler = BenchmarkScheduler.from_yaml(args.bench_from_yaml)
+
+        env_cfg.events.reset_objects.func = scheduler.on_reset
+        env_cfg.events.reset_objects.params = {
+        "asset_cfgs": [
+            SceneEntityCfg("object", body_names="Object"),
+            SceneEntityCfg("target_object", body_names="Target"),
+        ],
+        }
 
     gr00t_client: RobotInferenceClient = RobotInferenceClient(host="localhost", port=5555)
 
@@ -131,6 +144,17 @@ def main(argv: list[str] | None = None) -> None:
                 if done_mask.any():
                     done_counter += sum(done_mask)
                     success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
+
+                if args.bench_from_yaml:
+                    done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+                    for env_id in done_ids:
+                        scheduler.env_to_case.pop(env_id, None)
+
+                    all_assigned = (scheduler.cursor >= len(scheduler.order))
+                    inflight = len(scheduler.env_to_case)
+                    if all_assigned and inflight == 0:
+                        break
+
 
                 print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
