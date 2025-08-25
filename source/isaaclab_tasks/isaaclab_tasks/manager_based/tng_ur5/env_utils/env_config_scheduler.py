@@ -11,7 +11,7 @@ def convert_deg_to_rad(deg: list[float]) -> list[float]:
     return [math.radians(angle) for angle in deg]
 
 @dataclass
-class BenchmarkScheduler:
+class EnvConfigScheduler:
     cases: list
     order: list[int]
     cursor: int = 0

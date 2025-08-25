@@ -21,9 +21,7 @@ start with:
 python scripts/tng/ur5_pick_and_place_eval.py --headless --enable_cameras --blackwell
 
 """
-from utils.gr00t_inference_client import RobotInferenceClient
-from utils.action_buffer import ActionBuffer
-import numpy as np
+
 import torch
 from collections import deque
 import argparse
@@ -34,7 +32,7 @@ parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
 parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
 parser.add_argument("--gripper_vel_tol", type=float, default=0.01, help="Gripper velocity tolerance (rad/m)")
-parser.add_argument("--num_envs", type=int, default=5, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--bench_from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -63,30 +61,25 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
-from utils.benchmark_scheduler import BenchmarkScheduler
-from isaaclab.managers import SceneEntityCfg
-
+from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
+from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
+from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import RobotInferenceClient
+from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.action_buffer import ActionBuffer
 
 
 
 def main(argv: list[str] | None = None) -> None:
-    env_cfg = parse_env_cfg(
+    env_cfg: PickAndPlaceEnvCfg = parse_env_cfg(
         "TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0",
         device=args.device,
         use_fabric=not args.disable_fabric,
         num_envs=args.num_envs
     )
+    result_dict = {}
+    scheduler = None
     if args.bench_from_yaml:
-        scheduler = BenchmarkScheduler.from_yaml(args.bench_from_yaml)
-
-        env_cfg.events.reset_objects.func = scheduler.on_reset
-        env_cfg.events.reset_objects.params = {
-        "asset_cfgs": [
-            SceneEntityCfg("object", body_names="Object"),
-            SceneEntityCfg("target_object", body_names="Target"),
-        ],
-        }
-
+        scheduler = patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
+        
     gr00t_client: RobotInferenceClient = RobotInferenceClient(host="localhost", port=5555)
 
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
@@ -145,7 +138,7 @@ def main(argv: list[str] | None = None) -> None:
                     done_counter += sum(done_mask)
                     success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
 
-                if args.bench_from_yaml:
+                if scheduler:
                     done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
                     for env_id in done_ids:
                         scheduler.env_to_case.pop(env_id, None)

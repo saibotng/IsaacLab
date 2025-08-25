@@ -161,6 +161,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
 
 @configclass
 class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
+    #TODO: make recorder deactivatable from config
     recorders = None#RecorderCfg_Inference()
     events = EventCfg_Inference()
     terminations = TerminationsCfg_Inference()
