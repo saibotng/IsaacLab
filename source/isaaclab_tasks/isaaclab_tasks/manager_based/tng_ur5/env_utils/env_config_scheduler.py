@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import math, random, yaml, torch
 
 from isaaclab.envs.manager_based_env import ManagerBasedEnv
@@ -10,23 +9,43 @@ def convert_deg_to_rad(deg: list[float]) -> list[float]:
     """Convert a list of angles in degrees to radians."""
     return [math.radians(angle) for angle in deg]
 
-@dataclass
 class EnvConfigScheduler:
-    cases: list
-    order: list[int]
-    cursor: int = 0
-    env_to_case: dict[int, int] = field(default_factory=dict)
-    idle_mask: torch.Tensor | None = None
-
-    @classmethod
-    def from_yaml(cls, path):
-        loaded_yaml = yaml.safe_load(open(path, "r"))
-        order = list(range(len(loaded_yaml["cases"])))
-        return cls(cases=loaded_yaml["cases"], order=order)
+    def __init__(self, yaml_path: str):
+        """Initialize the scheduler from a YAML configuration file.
+        
+        Args:
+            yaml_path: Path to the YAML file containing the cases configuration
+            cursor: Starting cursor position (default: 0)
+        """
+        loaded_yaml = yaml.safe_load(open(yaml_path, "r"))
+        self.cases = loaded_yaml["cases"]
+        self.order = list(range(len(self.cases)))
+        self.cursor = 0
+        self.env_to_case: dict[int, int] = {}
+        self.idle_mask: torch.Tensor | None = None
+        # Add instance ID for debugging
+        self._instance_id = id(self)
+        print(f"[DEBUG] EnvConfigScheduler created with ID: {self._instance_id}")
+    
+    def debug_info(self) -> str:
+        """Return debug information about this scheduler instance."""
+        return f"Scheduler ID: {self._instance_id}, env_to_case: {self.env_to_case}, cursor: {self.cursor}"
     
     def _attach_idle_mask(self, env):
         if self.idle_mask is None:
             self.idle_mask = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def get_prompts(self, env_ids) -> list[str]:
+        prompts = []
+        for env_id in env_ids:
+            case_id = self.env_to_case.get(env_id, None)
+            if case_id is not None:
+                case = self.cases[case_id]
+                prompt = case["prompt"]
+                prompts.append(prompt)
+            else:
+                prompts.append("")
+        return prompts
 
     # This is what EventTerm will call on reset:
     def on_reset(self,
@@ -55,13 +74,13 @@ class EnvConfigScheduler:
                 poses = [obj_pos + obj_rpy, tgt_pos + tgt_rpy]
 
                 set_rigid_object_poses(env, env_id, asset_cfgs, poses)
+        print(f"[DEBUG] Accessing scheduler after env generation: {self.debug_info()}")
 
         if idle_ids.numel() > 0:
-            self.idle_mask[idle_ids] = True
-            env.reset_buf[idle_ids] = 0
+            if self.idle_mask is not None:
+                self.idle_mask[idle_ids] = True
             return
-
-
+        
         # purely informative
         if hasattr(env, "extras"):
             env.extras["all_cases_assigned"] = (self.cursor >= len(self.order))

@@ -30,7 +30,6 @@ from isaaclab.envs import ManagerBasedEnv
 
 from . import mdp
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
-from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
 import os
 from dotenv import load_dotenv
 from math import pi
@@ -345,7 +344,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     curriculum = None
     rewards = None
     recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
-    env_config_scheduler: EnvConfigScheduler | None = None
+    #env_config_scheduler: EnvConfigScheduler | None = None
 
     def __post_init__(self):
         """Post initialization."""

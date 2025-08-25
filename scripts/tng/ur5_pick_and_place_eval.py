@@ -29,7 +29,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=3, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--bench_from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -61,7 +61,9 @@ from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
 from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import Gr00tInferenceClient
-from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.action_buffer import RFMActionManager
+from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.rfm_action_manager import RFMActionManager
+
+DEFAULT_TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
 
 
 
@@ -77,10 +79,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.bench_from_yaml:
         scheduler = patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
 
+    print(f"[DEBUG] Accessing scheduler before env generation: {scheduler.debug_info()}")
+
     gr00t_client: Gr00tInferenceClient = Gr00tInferenceClient(host="localhost", port=5555)
 
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
     obs, _ = env.reset()
+
+    print(f"[DEBUG] Accessing scheduler after env generation: {scheduler.debug_info()}")
 
     num_envs: int = env.unwrapped.num_envs
     action_dim: int = env.unwrapped.action_space.shape[-1]
@@ -95,8 +101,10 @@ def main(argv: list[str] | None = None) -> None:
             with torch.inference_mode():
                 #TODO: compute really necessary?
                 obs = env.unwrapped.observation_manager.compute()
+                env_ids = torch.arange(num_envs, device=device)
+                prompts = scheduler.get_prompts(env_ids) if scheduler else [DEFAULT_TASK_DESCRIPTION]*num_envs
 
-                env_actions = rfm_action_manager.get_targets(obs)
+                env_actions = rfm_action_manager.get_targets(obs, prompts)
                 obs, _, terminated, truncated, _ = env.step(env_actions)
                 done_mask = (terminated | truncated).to(device=device)
                 rfm_action_manager.update_target_tracking(obs, done_mask)
@@ -119,7 +127,7 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Successful terminations: {success_counter} / {done_counter}")
-                    
+                        
 
 
     finally:

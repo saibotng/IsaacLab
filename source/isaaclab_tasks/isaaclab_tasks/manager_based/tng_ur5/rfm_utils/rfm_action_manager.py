@@ -9,7 +9,7 @@ GRIPPER_SNAP_THRESHOLD = 0.015
 ENFORCE_GRIPPER_DELTA = 0.0015
 ARM_TARGET_TOL = 0.003
 GRIPPER_TARGET_TOL = 0.01
-TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
+
 
 def maybe_snap_gripper_actions(gripper_actions):
     if SNAP_GRIPPER_ACTIONS:
@@ -42,14 +42,14 @@ def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tenso
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
-def extract_gr00t_obs_from_full_obs(full_obs: dict, env_idx):
+def construct_gr00t_obs_from_env_obs_and_prompt(full_obs: dict, env_idx, prompt: str):
         gr00t_obs = {
             "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
             "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
             "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
             "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
             "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-            "annotation.human.action.task_description": [TASK_DESCRIPTION],
+            "annotation.human.action.task_description": [prompt],
         }
         return gr00t_obs
 
@@ -135,7 +135,7 @@ class RFMActionManager:
         for idx in done_indices:
             self.last_raw_action_dicts[idx] = None
 
-    def maybe_get_new_action_chunk_from_rfm(self, obs) -> None:
+    def maybe_get_new_action_chunk_from_rfm(self, obs, prompts) -> None:
         if not self.last_action_reached.any():
             return
 
@@ -143,7 +143,7 @@ class RFMActionManager:
         env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         new_chunk = torch.empty(len(env_ids), self.chunk_size, self.action_dim, device=self.device)
         for k, env_idx in enumerate(env_ids):
-            gr00t_obs = extract_gr00t_obs_from_full_obs(obs, env_idx)
+            gr00t_obs = construct_gr00t_obs_from_env_obs_and_prompt(obs, env_idx, prompts[env_idx])
             gr00t_action = self.rfm_client.get_action(gr00t_obs)
             new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
             # Store the raw action dict for this environment
@@ -153,8 +153,8 @@ class RFMActionManager:
         #TODO: return necessary?
         return
     
-    def get_targets(self, obs):
-        self.maybe_get_new_action_chunk_from_rfm(obs)
+    def get_targets(self, obs, prompts):
+        self.maybe_get_new_action_chunk_from_rfm(obs, prompts)
         return self.current_target
     
     def update_target_tracking(self, obs, done_mask):
