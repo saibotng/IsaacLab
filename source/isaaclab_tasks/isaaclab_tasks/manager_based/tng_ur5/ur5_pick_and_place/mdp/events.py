@@ -8,9 +8,65 @@ import isaaclab.utils.math as math_utils
 from isaaclab.managers import SceneEntityCfg
 import random
 import yaml
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
+
+
+
+def reset_env_from_scheduler(
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor,
+        asset_cfgs: list[SceneEntityCfg],
+        scheduler: EnvConfigScheduler
+):
+    if env.extras.get("scheduler") is None:
+        scheduler.register_in_env(env)
+
+    for env_id in env_ids.tolist():
+        case = scheduler.get_new_case_for_env(env_id, env)
+
+        try:
+            obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
+            tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
+            poses = [obj_pos + obj_rpy, tgt_pos + tgt_rpy]
+
+            set_rigid_object_poses(env, env_id, asset_cfgs, poses)
+
+        except KeyError as e:
+            print(f"[WARNING] Missing key in case definition: {e}. {e} will be set to default.")
+    
+
+def reset_env_random(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    asset_cfgs: list[SceneEntityCfg],
+    min_separation: float,
+    object_pose_range: dict[str, tuple[float, float]],
+    max_sample_tries: int,
+    joint_rel_degree_range: tuple[float, float],
+    gripper_abs_m_range: tuple[float, float],
+
+):
+    if env_ids is None:
+        return
+
+    for cur_env in env_ids.tolist():
+        pose_list = sample_object_poses(
+            num_objects=len(asset_cfgs),
+            min_separation=min_separation,
+            pose_range=object_pose_range,
+            max_sample_tries=max_sample_tries,
+        )
+        set_rigid_object_poses(env, cur_env, asset_cfgs, pose_list)
+
+    reset_joints_by_degree(env, env_ids, joint_rel_degree_range, gripper_abs_m_range)
+
+def convert_deg_to_rad(deg: list[float]) -> list[float]:
+    """Convert a list of angles in degrees to radians."""
+    return [math.radians(angle) for angle in deg]
 
 def set_rigid_object_poses(
         env: ManagerBasedEnv,
@@ -33,28 +89,6 @@ def set_rigid_object_poses(
         asset.write_root_velocity_to_sim(
             torch.zeros(1, 6, device=env.device), env_ids=torch.tensor([env_id], device=env.device)
         )
-
-
-
-def randomize_object_pose(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor,
-    asset_cfgs: list[SceneEntityCfg],
-    min_separation: float = 0.0,
-    pose_range: dict[str, tuple[float, float]] = {},
-    max_sample_tries: int = 5000,
-):
-    if env_ids is None:
-        return
-
-    for cur_env in env_ids.tolist():
-        pose_list = sample_object_poses(
-            num_objects=len(asset_cfgs),
-            min_separation=min_separation,
-            pose_range=pose_range,
-            max_sample_tries=max_sample_tries,
-        )
-        set_rigid_object_poses(env, cur_env, asset_cfgs, pose_list)
 
 
 def sample_object_poses(

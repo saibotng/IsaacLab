@@ -62,6 +62,7 @@ from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_
 from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import Gr00tInferenceClient
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.rfm_action_manager import RFMActionManager
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
 
 DEFAULT_TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
 
@@ -75,18 +76,14 @@ def main(argv: list[str] | None = None) -> None:
         num_envs=args.num_envs
     )
     result_dict = {}
-    scheduler = None
     if args.bench_from_yaml:
-        scheduler = patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
-
-    print(f"[DEBUG] Accessing scheduler before env generation: {scheduler.debug_info()}")
+        patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
 
     gr00t_client: Gr00tInferenceClient = Gr00tInferenceClient(host="localhost", port=5555)
-
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
     obs, _ = env.reset()
 
-    print(f"[DEBUG] Accessing scheduler after env generation: {scheduler.debug_info()}")
+    scheduler: EnvConfigScheduler = env.unwrapped.extras.get("scheduler", None)
 
     num_envs: int = env.unwrapped.num_envs
     action_dim: int = env.unwrapped.action_space.shape[-1]
@@ -95,13 +92,13 @@ def main(argv: list[str] | None = None) -> None:
     rfm_action_manager = RFMActionManager(num_envs, args.chunk_size, args.action_horizon, action_dim, gr00t_client, device)
     done_counter = 0
     success_counter = 0
+    env_ids = torch.arange(num_envs, device=device)
     try:
         while simulation_app.is_running():
 
             with torch.inference_mode():
                 #TODO: compute really necessary?
                 obs = env.unwrapped.observation_manager.compute()
-                env_ids = torch.arange(num_envs, device=device)
                 prompts = scheduler.get_prompts(env_ids) if scheduler else [DEFAULT_TASK_DESCRIPTION]*num_envs
 
                 env_actions = rfm_action_manager.get_targets(obs, prompts)
@@ -114,12 +111,8 @@ def main(argv: list[str] | None = None) -> None:
                     success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
 
                 if scheduler:
-                    done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
-                    for env_id in done_ids:
-                        scheduler.env_to_case.pop(env_id, None)
-
                     all_assigned = (scheduler.cursor >= len(scheduler.order))
-                    inflight = len(scheduler.env_to_case)
+                    inflight = len(scheduler.cases_being_processed)
                     if all_assigned and inflight == 0:
                         break
 

@@ -8,11 +8,9 @@ from dataclasses import MISSING
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
@@ -25,11 +23,9 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import RecorderTermCfg, RecorderManagerBaseCfg, RecorderTerm, DatasetExportMode
 import torch
 import datetime
-from isaaclab.envs import ManagerBasedEnv
 
 
 from . import mdp
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 import os
 from dotenv import load_dotenv
 from math import pi
@@ -122,48 +118,38 @@ class EventCfg_SM:
     #randomize_joint_parameters
     #randomize_fixed_tendon_parameters
     #randomize orientations
-
-    reset_objects = EventTerm(
-        func=mdp.randomize_object_pose,
+    reset_env = EventTerm(
+        func=mdp.reset_env_random,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (55 * (pi / 180), 125 * (pi / 180))},
+            "object_pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (55 * (pi / 180), 125 * (pi / 180))},
             "min_separation": 0.15,
             "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
             "max_sample_tries": 5000,
-        },
-    )
-    reset_joints = EventTerm(
-        func=reset_joints_by_degree,
-        mode="reset",
-        params={
             "joint_rel_degree_range": (-10.0, 10.0),
             "gripper_abs_m_range": (0.00, 0.04),
-        }
+        },
     )
 
-@configclass
-class EventCfg_Inference(EventCfg_SM):
-    """Configuration for events."""
 
-    reset_objects = EventTerm(
-        func=mdp.randomize_object_pose,
+
+
+@configclass
+class EventCfg_Inference:
+    """Configuration for events."""
+    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+
+    reset_env = EventTerm(
+        func=mdp.reset_env_random,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
+            "object_pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
             "min_separation": 0.15,
             "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
             "max_sample_tries": 5000,
-        },
-    )
-    
-    reset_joints = EventTerm(
-        func=reset_joints_by_degree,
-        mode="reset",
-        params={
             "joint_rel_degree_range": (-5.0, 5.0),
             "gripper_abs_m_range": (0.00, 0.01),
-        }
+        },
     )
 
 
@@ -341,10 +327,10 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     # MDP settings
     terminations = TerminationsCfg_SM()
     events = EventCfg_SM()
+    recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
     curriculum = None
     rewards = None
-    recorders: RecorderManagerBaseCfg = RecorderCfg_SM()
-    #env_config_scheduler: EnvConfigScheduler | None = None
+
 
     def __post_init__(self):
         """Post initialization."""
