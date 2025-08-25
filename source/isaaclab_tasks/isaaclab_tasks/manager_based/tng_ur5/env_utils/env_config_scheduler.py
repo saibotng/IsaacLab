@@ -2,6 +2,7 @@ import math, random, yaml, torch
 
 from isaaclab.envs.manager_based_env import ManagerBasedEnv
 from isaaclab.managers import SceneEntityCfg
+from copy import deepcopy
 
 class EnvConfigScheduler:
     def __init__(self, yaml_path: str, num_envs, device):
@@ -28,7 +29,8 @@ class EnvConfigScheduler:
 
     def get_prompts(self, env_ids) -> list[str]:
         prompts = []
-        for case_idx in self.cases_being_processed:
+        for env_id in env_ids:
+            case_idx = self.cases_being_processed[env_id]
             if case_idx is not None:
                 case = self.cases[case_idx]
                 prompt = case["prompt"]
@@ -41,7 +43,7 @@ class EnvConfigScheduler:
         if self.cursor >= len(self.order):
             self.idle_mask[env_id] = True
             self.cases_being_processed[env_id] = None
-            case =  self.idle_case
+            case = self.idle_case
 
         else:
             case_idx = self.order[self.cursor]
@@ -51,5 +53,14 @@ class EnvConfigScheduler:
         env.extras["all_cases_assigned"] = (self.cursor >= len(self.order))
         env.extras["idle_mask"] = self.idle_mask
         return case
+
+    def get_empty_results_dict(self) -> dict:
+        result_dict = {
+            "total_cases": len(self.cases),
+            "cases": deepcopy(self.cases)
+        }
+        for case in result_dict["cases"]:
+            case["metrics"] = {}
+        return result_dict
 
 

@@ -24,6 +24,7 @@ python scripts/tng/ur5_pick_and_place_eval.py --headless --enable_cameras --blac
 
 import torch
 import argparse
+import json
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
@@ -93,6 +94,16 @@ def main(argv: list[str] | None = None) -> None:
     done_counter = 0
     success_counter = 0
     env_ids = torch.arange(num_envs, device=device)
+
+    if scheduler:
+        results_dict = scheduler.get_empty_results_dict()
+        for case in results_dict["cases"]:
+            case["metrics"] = {
+                "success": False,
+                "object_lifted": False,
+                "object_reached_target": False,
+                "object_in_gripper_reach": False,
+            }
     try:
         while simulation_app.is_running():
 
@@ -109,18 +120,46 @@ def main(argv: list[str] | None = None) -> None:
 
                 if done_mask.any():
                     done_counter += sum(done_mask)
-                    success_counter += sum((env.unwrapped.termination_manager.get_term("success")))
+                    success_mask = env.unwrapped.termination_manager.get_term("success")
+                    success_counter += sum(success_mask)
+                    if scheduler:
+                        for env_id in success_mask.nonzero(as_tuple=False).squeeze(-1).tolist():
+                            case_idx = scheduler.cases_being_processed[env_id]
+                            if case_idx is not None:
+                                results_dict["cases"][case_idx]["metrics"]["success"] = True
 
+                reached_target_list = obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()
+                in_gripper_reach_list = obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()
+                lifted_list = obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()
 
-                print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-                print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-                print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
+                print(f"Envs reached target: {reached_target_list}")
+                print(f"Envs in Gripper Reach: {in_gripper_reach_list}")
+                print(f"Envs lifted: {lifted_list}")
                 print(f"Successful terminations: {success_counter} / {done_counter}")
 
                 if scheduler:
+                    for env_id in reached_target_list:
+                        case_idx = scheduler.cases_being_processed[env_id]
+                        if case_idx is not None:
+                            results_dict["cases"][case_idx]["metrics"]["object_reached_target"] = True
+                    for env_id in in_gripper_reach_list:
+                        case_idx = scheduler.cases_being_processed[env_id]
+                        if case_idx is not None:
+                            results_dict["cases"][case_idx]["metrics"]["object_in_gripper_reach"] = True
+                    for env_id in lifted_list:
+                        case_idx = scheduler.cases_being_processed[env_id]
+                        if case_idx is not None:
+                            results_dict["cases"][case_idx]["metrics"]["object_lifted"] = True
+
                     all_assigned = (scheduler.cursor >= len(scheduler.order))
                     inflight = len([case for case in scheduler.cases_being_processed if case is not None])
                     if all_assigned and inflight == 0:
+                        overall_success_rate = success_counter / done_counter if done_counter > 0 else 0.0
+                        print(f"Overall success rate: {overall_success_rate*100:.1f}% ({success_counter} / {done_counter})")
+                        result_dict["success_rate"] = overall_success_rate
+                        print("All cases processed, exiting.")
+                        with open("results.json", "w") as f:
+                            json.dump(results_dict, f)
                         break
                         
 

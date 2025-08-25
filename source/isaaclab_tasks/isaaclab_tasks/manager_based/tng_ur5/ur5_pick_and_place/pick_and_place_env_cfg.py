@@ -34,6 +34,7 @@ load_dotenv()  # loads variables from .env into os.environ
 
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 TABLE_HEIGHT = 0.0
+DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
 # Scene definition
 ##
@@ -292,6 +293,34 @@ class ObservationRecorder(RecorderTerm):
             else {kk: vv.cpu() for kk, vv in v.items()}
         ) for k, v in obs_dict.items()}
         return "obs_post", obs_dict_cpu
+    
+    def record_post_reset(self, env_ids):
+        scheduler = self._env.extras.get("scheduler", None)
+        prompts = (scheduler.get_prompts(env_ids)
+                if scheduler else [DEFAULT_PROMPT] * self._env.num_envs)
+        prompt_bytes, prompt_len = self.encode_prompts_uint8(prompts)
+        obs_dict = {
+            "prompt_bytes": prompt_bytes,   # uint8 [num_envs, max_len]
+            "prompt_len": prompt_len,       # int32 [num_envs]
+        }
+        obs_dict_cpu = {k: (
+            v.cpu() if torch.is_tensor(v)
+            else {kk: vv.cpu() for kk, vv in v.items()}
+        ) for k, v in obs_dict.items()}
+        return "obs_post_reset", obs_dict_cpu
+
+    def encode_prompts_uint8(self, prompts):
+        # prompts: list[str] length = num_envs
+        b = [p.encode("utf-8") for p in prompts]
+        max_len = max(len(x) for x in b) if b else 0
+        out = torch.zeros((len(b), max_len), dtype=torch.uint8, device=self._env.device)
+        lengths = torch.zeros((len(b),), dtype=torch.int32, device=self._env.device)
+        for i, bi in enumerate(b):
+            n = min(len(bi), max_len)
+            if n > 0:
+                out[i, :n] = torch.as_tensor(list(bi[:n]), dtype=torch.uint8, device=self._env.device)
+            lengths[i] = n
+        return out, lengths.unsqueeze(-1)
 
 @configclass
 class ObservationRecorderCfg(RecorderTermCfg):

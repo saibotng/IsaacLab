@@ -25,7 +25,7 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
 
-
+parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
 # Parse args first to check if renderer should be enabled
@@ -68,6 +68,8 @@ from isaaclab.assets.rigid_object.rigid_object_data import RigidObjectData
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
+from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
 
 # initialize warp
 wp.init()
@@ -372,9 +374,13 @@ def main():
         use_fabric=not args_cli.disable_fabric,
     )
     # create environment
-    env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
+    if args_cli.from_yaml:
+        patch_env_config_for_configuration_scheduling(env_cfg, args_cli.from_yaml)
 
+    env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
     obs, _ = env.reset()
+    scheduler: EnvConfigScheduler = env.unwrapped.extras.get("scheduler", None)
+
     home_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
     home_orientation[:, 0] = 0.0
     home_orientation[:, 1] = 0.70710678118
@@ -386,30 +392,40 @@ def main():
         env_cfg.sim.dt * env_cfg.decimation, env.unwrapped.num_envs, env.unwrapped.device, position_threshold=0.01
     )
     done_counter = 0
-    try:
-        while simulation_app.is_running():
-            # run everything in inference mode
-            with torch.inference_mode():
-                env.unwrapped.extras["state"] = pick_sm.sm_state
+    success_counter = 0
+    #try:
+    while simulation_app.is_running():
+        # run everything in inference mode
+        with torch.inference_mode():
+            env.unwrapped.extras["state"] = pick_sm.sm_state
 
-                tcp_pose = obs["end_effector"]
-                object_pose = obs["rigid_objects"]["object_pose"]
-                target_pose = obs["rigid_objects"]["target_pose"]
+            tcp_pose = obs["end_effector"]
+            object_pose = obs["rigid_objects"]["object_pose"]
+            target_pose = obs["rigid_objects"]["target_pose"]
 
-                actions = pick_sm.compute(
-                    tcp_pose, object_pose, target_pose
-                )
+            actions = pick_sm.compute(
+                tcp_pose, object_pose, target_pose
+            )
 
-                obs, _, terminated, truncated, _ = env.step(actions)
+            obs, _, terminated, truncated, _ = env.step(actions)
+            done_mask = (terminated | truncated).to(device=env.unwrapped.device)
 
-                if terminated.any():
-                    done_counter += sum(terminated)
-                    print(f"Done counter: {done_counter}")
-                    pick_sm.reset_idx(terminated.nonzero(as_tuple=False).squeeze(-1))
-    finally:
-        # close the environment
-        try: env.close()
-        finally: simulation_app.close()
+            if done_mask.any():
+                done_counter += sum(done_mask)
+                success_counter += sum((env.unwrapped.termination_manager.get_term("success")))
+                print(f"Successful terminations: {success_counter} / {done_counter}")
+                pick_sm.reset_idx(done_mask.nonzero(as_tuple=False).squeeze(-1))
+
+            if scheduler:
+                all_assigned = (scheduler.cursor >= len(scheduler.order))
+                inflight = len([case for case in scheduler.cases_being_processed if case is not None])
+                if all_assigned and inflight == 0:
+                    print("All cases processed, exiting.")
+                    break
+    # finally:
+
+    try: env.close()
+    finally: simulation_app.close()
 
 
 if __name__ == "__main__":
