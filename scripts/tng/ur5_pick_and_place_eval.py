@@ -23,15 +23,12 @@ python scripts/tng/ur5_pick_and_place_eval.py --headless --enable_cameras --blac
 """
 
 import torch
-from collections import deque
 import argparse
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
-parser.add_argument("--joint_tol", type=float, default=0.003, help="Joint convergence tolerance (rad/m)")
-parser.add_argument("--gripper_vel_tol", type=float, default=0.01, help="Gripper velocity tolerance (rad/m)")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--bench_from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
@@ -63,8 +60,8 @@ import gymnasium as gym
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg 
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
 from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
-from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import RobotInferenceClient
-from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.action_buffer import ActionBuffer
+from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import Gr00tInferenceClient
+from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.action_buffer import RFMActionManager
 
 
 
@@ -79,8 +76,8 @@ def main(argv: list[str] | None = None) -> None:
     scheduler = None
     if args.bench_from_yaml:
         scheduler = patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
-        
-    gr00t_client: RobotInferenceClient = RobotInferenceClient(host="localhost", port=5555)
+
+    gr00t_client: Gr00tInferenceClient = Gr00tInferenceClient(host="localhost", port=5555)
 
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
     obs, _ = env.reset()
@@ -89,50 +86,20 @@ def main(argv: list[str] | None = None) -> None:
     action_dim: int = env.unwrapped.action_space.shape[-1]
     device: torch.device = env.unwrapped.device
 
-    buffer = ActionBuffer(num_envs, args.chunk_size, args.action_horizon, action_dim, device)
-
-    err_deque = deque(maxlen=4)
-    err_deque.append(torch.zeros(num_envs, device=device)) 
-
-    action_idx_deque = deque(maxlen=4)
-    action_idx_deque.append(torch.zeros(num_envs, device=device)) 
+    rfm_action_manager = RFMActionManager(num_envs, args.chunk_size, args.action_horizon, action_dim, gr00t_client, device)
     done_counter = 0
     success_counter = 0
     try:
         while simulation_app.is_running():
 
             with torch.inference_mode():
-                buffer.maybe_get_new_actions(env, gr00t_client)
+                #TODO: compute really necessary?
+                obs = env.unwrapped.observation_manager.compute()
 
-                actions = buffer.actions
-                obs, _, terminated, truncated, _ = env.step(actions)
+                env_actions = rfm_action_manager.get_targets(obs)
+                obs, _, terminated, truncated, _ = env.step(env_actions)
                 done_mask = (terminated | truncated).to(device=device)
-
-                q = obs['arm_joints']['arm_joint_pos'] 
-                number_of_arm_joints = q.shape[-1]
-
-                err_arm = torch.abs(q - buffer.actions[:,:number_of_arm_joints]).max(dim=-1).values  
-                err_deque.append(err_arm)
-                stacked_err = torch.stack(list(err_deque), dim=0)
-                err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
-
-                gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
-                gripper_reached = (gripper_vel.abs() < args.gripper_vel_tol).to(device=device)
-
-                action_idx_deque.append(buffer.ptr.clone())
-                stacked_action_idx = torch.stack(list(action_idx_deque), dim=0)
-                action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
-
-                arm_reached = err_arm < args.joint_tol
-                stuck = (err_span < 1e-5) & (action_idx_span == 0)
-                envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
-
-                buffer.maybe_update_targets(envs_to_update_targets)
-                buffer.maybe_reset_buffer(done_mask)
-                
-
-
-                    
+                rfm_action_manager.update_target_tracking(obs, done_mask)
 
                 if done_mask.any():
                     done_counter += sum(done_mask)
@@ -148,11 +115,9 @@ def main(argv: list[str] | None = None) -> None:
                     if all_assigned and inflight == 0:
                         break
 
-
                 print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-                print(f"Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Successful terminations: {success_counter} / {done_counter}")
                     
 

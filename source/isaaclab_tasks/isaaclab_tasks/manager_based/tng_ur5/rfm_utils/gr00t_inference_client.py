@@ -121,7 +121,7 @@ class BaseInferenceClient:
         self.socket.close()
         self.context.term()
 
-class RobotInferenceClient(BaseInferenceClient, BasePolicy):
+class Gr00tInferenceClient(BaseInferenceClient, BasePolicy):
     """
     Client for communicating with the RealRobotServer
     """

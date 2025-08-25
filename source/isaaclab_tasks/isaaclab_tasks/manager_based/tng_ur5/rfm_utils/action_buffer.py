@@ -1,11 +1,14 @@
 import torch
-from .gr00t_inference_client import RobotInferenceClient
+from .gr00t_inference_client import Gr00tInferenceClient
 import numpy as np
+from collections import deque
 
 DELTA_ACTIONS = True
 SNAP_GRIPPER_ACTIONS = True
 GRIPPER_SNAP_THRESHOLD = 0.015
 ENFORCE_GRIPPER_DELTA = 0.0015
+ARM_TARGET_TOL = 0.003
+GRIPPER_TARGET_TOL = 0.01
 TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
 
 def maybe_snap_gripper_actions(gripper_actions):
@@ -58,8 +61,15 @@ def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch
         return action_chunk
 
 
-class ActionBuffer:
-    def __init__(self, num_envs: int, chunk_size: int, action_horizon: int, action_dim: int, device: torch.device):
+class RFMActionManager:
+    def __init__(self, 
+                 num_envs: int, 
+                 chunk_size: int, 
+                 action_horizon: int, 
+                 action_dim: int, 
+                 rfm_client: Gr00tInferenceClient, 
+                 device: torch.device):
+        
         self.num_envs = num_envs
         self.chunk_size = chunk_size
         self.action_horizon = action_horizon
@@ -70,6 +80,13 @@ class ActionBuffer:
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
         self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)
         self.last_raw_action_dicts = [None for _ in range(num_envs)]
+        self.rfm_client = rfm_client
+
+        self.err_deque = deque(maxlen=4)
+        self.err_deque.append(torch.zeros(num_envs, device=device))
+
+        self.action_idx_deque = deque(maxlen=4)
+        self.action_idx_deque.append(torch.zeros(num_envs, device=device))
 
 
  
@@ -118,28 +135,50 @@ class ActionBuffer:
         for idx in done_indices:
             self.last_raw_action_dicts[idx] = None
 
-    def maybe_get_new_actions(self, env, gr00t_client: RobotInferenceClient) -> None:
-        if not self.needs_refill.any():
+    def maybe_get_new_action_chunk_from_rfm(self, obs) -> None:
+        if not self.last_action_reached.any():
             return
 
-        refill_mask = self.needs_refill.clone()
-        full_obs = env.unwrapped.observation_manager.compute()
+        refill_mask = self.last_action_reached.clone()
         env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         new_chunk = torch.empty(len(env_ids), self.chunk_size, self.action_dim, device=self.device)
         for k, env_idx in enumerate(env_ids):
-            gr00t_obs = extract_gr00t_obs_from_full_obs(full_obs, env_idx)
-            gr00t_action = gr00t_client.get_action(gr00t_obs)
+            gr00t_obs = extract_gr00t_obs_from_full_obs(obs, env_idx)
+            gr00t_action = self.rfm_client.get_action(gr00t_obs)
             new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
             # Store the raw action dict for this environment
             self.last_raw_action_dicts[env_idx] = gr00t_action
 
         self.refill(refill_mask, new_chunk)
+        #TODO: return necessary?
         return
-
-    @property
-    def actions(self) -> torch.Tensor:
+    
+    def get_targets(self, obs):
+        self.maybe_get_new_action_chunk_from_rfm(obs)
         return self.current_target
     
-    @property
-    def needs_refill(self) -> torch.Tensor:
-        return self.last_action_reached
+    def update_target_tracking(self, obs, done_mask):
+        q = obs['arm_joints']['arm_joint_pos'] 
+        number_of_arm_joints = q.shape[-1]
+
+        err_arm = torch.abs(q - self.current_target[:,:number_of_arm_joints]).max(dim=-1).values  
+        self.err_deque.append(err_arm)
+        stacked_err = torch.stack(list(self.err_deque), dim=0)
+        err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
+
+        gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
+        gripper_reached = (gripper_vel.abs() < GRIPPER_TARGET_TOL).to(device=self.device)
+
+        self.action_idx_deque.append(self.ptr.clone())
+        stacked_action_idx = torch.stack(list(self.action_idx_deque), dim=0)
+        action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
+
+        arm_reached = err_arm < ARM_TARGET_TOL
+        stuck = (err_span < 1e-5) & (action_idx_span == 0)
+        envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
+
+        self.maybe_update_targets(envs_to_update_targets)
+        self.maybe_reset_buffer(done_mask)
+
+        if stuck.any():
+            print(f"WARNING: Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
