@@ -97,29 +97,31 @@ def main(argv: list[str] | None = None) -> None:
         while simulation_app.is_running():
 
             with torch.inference_mode():
-                #TODO: compute really necessary?
-                obs = env.unwrapped.observation_manager.compute()
+
                 prompts = scheduler.get_prompts(env_ids) if scheduler else [DEFAULT_TASK_DESCRIPTION]*num_envs
 
-                env_actions = rfm_action_manager.get_targets(obs, prompts)
+                idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
+
+                env_actions = rfm_action_manager.get_targets(obs, prompts, idle_mask)
                 obs, _, terminated, truncated, _ = env.step(env_actions)
                 done_mask = (terminated | truncated).to(device=device)
                 rfm_action_manager.update_target_tracking(obs, done_mask)
 
                 if done_mask.any():
                     done_counter += sum(done_mask)
-                    success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
+                    success_counter += sum((env.unwrapped.termination_manager.get_term("success")))
 
-                if scheduler:
-                    all_assigned = (scheduler.cursor >= len(scheduler.order))
-                    inflight = len(scheduler.cases_being_processed)
-                    if all_assigned and inflight == 0:
-                        break
 
                 print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
                 print(f"Successful terminations: {success_counter} / {done_counter}")
+
+                if scheduler:
+                    all_assigned = (scheduler.cursor >= len(scheduler.order))
+                    inflight = len([case for case in scheduler.cases_being_processed if case is not None])
+                    if all_assigned and inflight == 0:
+                        break
                         
 
 

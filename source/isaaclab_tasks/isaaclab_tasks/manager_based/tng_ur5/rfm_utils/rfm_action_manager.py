@@ -42,6 +42,12 @@ def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tenso
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
+def construct_action_chunk_from_obs_for_idle_envs(obs: dict, env_idx: int, chunk_size: int) -> torch.Tensor:
+    arm_joints = obs["arm_joints"]["arm_joint_pos"][env_idx]
+    gripper_joints = obs["gripper_joint"]["gripper_joint_pos"][env_idx]
+    action_chunk = torch.cat([arm_joints, gripper_joints, gripper_joints], dim=0).unsqueeze(0).repeat(chunk_size, 1)
+    return action_chunk
+
 def construct_gr00t_obs_from_env_obs_and_prompt(full_obs: dict, env_idx, prompt: str):
         gr00t_obs = {
             "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
@@ -135,26 +141,30 @@ class RFMActionManager:
         for idx in done_indices:
             self.last_raw_action_dicts[idx] = None
 
-    def maybe_get_new_action_chunk_from_rfm(self, obs, prompts) -> None:
+    def maybe_get_new_action_chunk_from_rfm(self, obs, prompts, idle_mask) -> None:
         if not self.last_action_reached.any():
             return
 
         refill_mask = self.last_action_reached.clone()
+        idle_ids = idle_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         env_ids = refill_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         new_chunk = torch.empty(len(env_ids), self.chunk_size, self.action_dim, device=self.device)
-        for k, env_idx in enumerate(env_ids):
-            gr00t_obs = construct_gr00t_obs_from_env_obs_and_prompt(obs, env_idx, prompts[env_idx])
-            gr00t_action = self.rfm_client.get_action(gr00t_obs)
-            new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
-            # Store the raw action dict for this environment
-            self.last_raw_action_dicts[env_idx] = gr00t_action
+        for k, env_id in enumerate(env_ids):
+            if env_id in idle_ids:
+                new_chunk[k] = construct_action_chunk_from_obs_for_idle_envs(obs, env_id, self.chunk_size)
+            else:
+                gr00t_obs = construct_gr00t_obs_from_env_obs_and_prompt(obs, env_id, prompts[env_id])
+                gr00t_action = self.rfm_client.get_action(gr00t_obs)
+                new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
+                # Store the raw action dict for this environment
+                self.last_raw_action_dicts[env_id] = gr00t_action
 
         self.refill(refill_mask, new_chunk)
         #TODO: return necessary?
         return
     
-    def get_targets(self, obs, prompts):
-        self.maybe_get_new_action_chunk_from_rfm(obs, prompts)
+    def get_targets(self, obs, prompts, idle_mask):
+        self.maybe_get_new_action_chunk_from_rfm(obs, prompts, idle_mask)
         return self.current_target
     
     def update_target_tracking(self, obs, done_mask):

@@ -32,9 +32,9 @@ class EnvConfigScheduler:
             if case_idx is not None:
                 case = self.cases[case_idx]
                 prompt = case["prompt"]
-                prompts.append(prompt)
             else:
-                prompts.append("")
+                prompt = self.idle_case["prompt"]
+            prompts.append(prompt)
         return prompts
     
     def get_new_case_for_env(self, env_id, env):
