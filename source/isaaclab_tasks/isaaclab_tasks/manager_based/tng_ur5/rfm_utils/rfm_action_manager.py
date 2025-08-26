@@ -42,22 +42,7 @@ def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tenso
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')
     return action_chunk
 
-def construct_action_chunk_from_obs_for_idle_envs(obs: dict, env_idx: int, chunk_size: int) -> torch.Tensor:
-    arm_joints = obs["arm_joints"]["arm_joint_pos"][env_idx]
-    gripper_joints = obs["gripper_joint"]["gripper_joint_pos"][env_idx]
-    action_chunk = torch.cat([arm_joints, gripper_joints, gripper_joints], dim=0).unsqueeze(0).repeat(chunk_size, 1)
-    return action_chunk
 
-def construct_gr00t_obs_from_env_obs_and_prompt(full_obs: dict, env_idx, prompt: str):
-        gr00t_obs = {
-            "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
-            "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
-            "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-            "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-            "annotation.human.action.task_description": [prompt],
-        }
-        return gr00t_obs
 
 def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch.Tensor:
         if DELTA_ACTIONS:
@@ -151,9 +136,9 @@ class RFMActionManager:
         new_chunk = torch.empty(len(env_ids), self.chunk_size, self.action_dim, device=self.device)
         for k, env_id in enumerate(env_ids):
             if env_id in idle_ids:
-                new_chunk[k] = construct_action_chunk_from_obs_for_idle_envs(obs, env_id, self.chunk_size)
+                new_chunk[k] = self.construct_action_chunk_from_obs_for_idle_envs(obs, env_id)
             else:
-                gr00t_obs = construct_gr00t_obs_from_env_obs_and_prompt(obs, env_id, prompts[env_id])
+                gr00t_obs = self.construct_gr00t_obs_from_env_obs_and_prompt(obs, env_id, prompts[env_id])
                 gr00t_action = self.rfm_client.get_action(gr00t_obs)
                 new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
                 # Store the raw action dict for this environment
@@ -193,3 +178,23 @@ class RFMActionManager:
 
         if stuck.any():
             print(f"WARNING: Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
+
+    def construct_gr00t_obs_from_env_obs_and_prompt(self, full_obs: dict, env_idx, prompt: str):
+            gr00t_obs = {
+                "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
+                "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
+                "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
+                "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
+                "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
+                "state.delta_robot_arm": np.expand_dims(self.last_raw_action_dicts[env_idx]["action.delta_robot_arm"][self.ptr[env_idx]-1].astype(np.float64), axis=0) if self.last_raw_action_dicts[env_idx] is not None else np.zeros((1, full_obs["arm_joints"]["arm_joint_pos"].shape[-1]), dtype=np.float64),
+                "state.delta_gripper": np.expand_dims(np.array([self.last_raw_action_dicts[env_idx]["action.delta_gripper"][self.ptr[env_idx]-1]], dtype=np.float64), axis=0) if self.last_raw_action_dicts[env_idx] is not None else np.zeros((1, full_obs["gripper_joint"]["gripper_joint_pos"].shape[-1]), dtype=np.float64),
+                "annotation.human.action.task_description": [prompt],
+            }
+            #TODO: build deltas from action chunk and compare to current method. Goal: deltas should be independent of control mode
+            return gr00t_obs
+    
+    def construct_action_chunk_from_obs_for_idle_envs(self, obs: dict, env_idx: int) -> torch.Tensor:
+        arm_joints = obs["arm_joints"]["arm_joint_pos"][env_idx]
+        gripper_joints = obs["gripper_joint"]["gripper_joint_pos"][env_idx]
+        action_chunk = torch.cat([arm_joints, gripper_joints, gripper_joints], dim=0).unsqueeze(0).repeat(self.chunk_size, 1)
+        return action_chunk

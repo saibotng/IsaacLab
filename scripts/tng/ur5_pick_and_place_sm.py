@@ -393,12 +393,16 @@ def main():
     )
     done_counter = 0
     success_counter = 0
+    idle_mask = torch.zeros(env.unwrapped.num_envs, dtype=torch.bool, device=env.unwrapped.device)
+    idle_action = torch.ones((1, env.unwrapped.action_space.shape[-1]), device=env.unwrapped.device)*0.5
     #try:
     while simulation_app.is_running():
         # run everything in inference mode
         with torch.inference_mode():
-            env.unwrapped.extras["state"] = pick_sm.sm_state
+            if scheduler:
+                idle_mask = scheduler.idle_mask.clone()
 
+            env.unwrapped.extras["state"] = pick_sm.sm_state
             tcp_pose = obs["end_effector"]
             object_pose = obs["rigid_objects"]["object_pose"]
             target_pose = obs["rigid_objects"]["target_pose"]
@@ -406,22 +410,25 @@ def main():
             actions = pick_sm.compute(
                 tcp_pose, object_pose, target_pose
             )
+            actions[idle_mask] = idle_action
 
             obs, _, terminated, truncated, _ = env.step(actions)
             done_mask = (terminated | truncated).to(device=env.unwrapped.device)
 
             if done_mask.any():
-                done_counter += sum(done_mask)
-                success_counter += sum((env.unwrapped.termination_manager.get_term("success")))
+                relevant_dones = done_mask & (~idle_mask)
+                relevant_successes = env.unwrapped.termination_manager.get_term("success").to(device=env.unwrapped.device) & (~idle_mask)
+                done_counter += sum(relevant_dones)
+                success_counter += sum(relevant_successes)
                 print(f"Successful terminations: {success_counter} / {done_counter}")
                 pick_sm.reset_idx(done_mask.nonzero(as_tuple=False).squeeze(-1))
 
-            if scheduler:
-                all_assigned = (scheduler.cursor >= len(scheduler.order))
-                inflight = len([case for case in scheduler.cases_being_processed if case is not None])
-                if all_assigned and inflight == 0:
-                    print("All cases processed, exiting.")
-                    break
+                if scheduler:
+                    all_assigned = (scheduler.cursor >= len(scheduler.order))
+                    inflight = len([case for case in scheduler.cases_being_processed if case is not None])
+                    if all_assigned and inflight == 0:
+                        print("All cases processed, exiting.")
+                        break
     # finally:
 
     try: env.close()

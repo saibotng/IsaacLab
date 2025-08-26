@@ -32,9 +32,9 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
-parser.add_argument("--num_envs", type=int, default=3, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
-parser.add_argument("--bench_from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
+parser.add_argument("--from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 
 temp_args, _ = parser.parse_known_args()
@@ -81,8 +81,8 @@ def main(argv: list[str] | None = None) -> None:
     )
 
 
-    if args.bench_from_yaml:
-        patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
+    if args.from_yaml:
+        patch_env_config_for_configuration_scheduling(env_cfg, args.from_yaml)
 
     gr00t_client: Gr00tInferenceClient = Gr00tInferenceClient(host="localhost", port=5555)
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
@@ -98,6 +98,7 @@ def main(argv: list[str] | None = None) -> None:
     done_counter = 0
     success_counter = 0
     env_ids = torch.arange(num_envs, device=device)
+    idle_mask = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
     #try:
     while simulation_app.is_running():
@@ -107,6 +108,7 @@ def main(argv: list[str] | None = None) -> None:
             if scheduler:
                 prompts = scheduler.get_prompts(env_ids)
                 scheduler.update_metrics(obs)
+                idle_mask = scheduler.idle_mask.clone()
             else:
                 prompts = [DEFAULT_PROMPT]*num_envs
                 print_verbose_info_for_subtasks(["object_reached_target", "object_in_gripper_reach", "object_lifted"], obs)
@@ -114,15 +116,17 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Successful terminations: {success_counter} / {done_counter}")
 
 
-            idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
+            #idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
             env_actions = rfm_action_manager.get_targets(obs, prompts, idle_mask)
             obs, _, terminated, truncated, _ = env.step(env_actions)
             done_mask = (terminated | truncated).to(device=device)
             rfm_action_manager.update_target_tracking(obs, done_mask)
 
             if done_mask.any():
-                done_counter += sum(done_mask)
-                success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
+                relevant_dones = done_mask & (~idle_mask)
+                relevant_successes = env.unwrapped.termination_manager.get_term("success").to(device=device) & (~idle_mask)
+                done_counter += sum(relevant_dones)
+                success_counter += sum(relevant_successes)
                 if scheduler:
                     all_assigned = (scheduler.cursor >= len(scheduler.order))
                     inflight = len([case for case in scheduler.cases_being_processed if case is not None])
@@ -134,7 +138,7 @@ def main(argv: list[str] | None = None) -> None:
                         print("All cases processed, exiting.")
                         
                         ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                        output_path = os.path.join("tng_benchmark_results", args.bench_from_yaml, f"results_{ts}.json")
+                        output_path = os.path.join("tng_benchmark_results", args.from_yaml, f"results_{ts}.json")
                         os.makedirs(os.path.dirname(output_path), exist_ok=True)
                         with open(output_path, "w") as f:
                             json.dump(results_dict, f, ensure_ascii=False, indent=2)

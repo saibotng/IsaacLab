@@ -42,8 +42,8 @@ class EnvConfigScheduler:
         return prompts
     
     def get_new_case_for_env(self, env_id, env):
-        success_envs = env.unwrapped.termination_manager.get_term("success").nonzero(as_tuple=False).squeeze(-1).tolist()
-        for success_env in success_envs:
+        success_mask = env.unwrapped.termination_manager.get_term("success")
+        if success_mask[env_id]:
             case_idx = self.cases_being_processed[env_id]
             if case_idx is not None:
                 self.results_dict["cases"][case_idx]["success"] = True   

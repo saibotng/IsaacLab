@@ -70,3 +70,5 @@ tests/
 .isaac-lab-docker-history
 
 .env
+
+tng_benchmark_results/

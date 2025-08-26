@@ -17,12 +17,4 @@ test_cases:
     object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
     target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
     prompt: "Pick up the blue cube and place it on the black platform 3"
-  - id: case_004
-    object: {pos: [-0.05,  -0.15, 0.00], rpy: [0.0, 180.0, 110.0]}
-    target: {pos: [0.1, 0.05, 0.00], rpy: [0.0, 180.0, 110.0]}
-    prompt: "Pick up the blue cube and place it on the black platform 4"
-  - id: case_005
-    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
-    prompt: "Pick up the blue cube and place it on the black platform 5"
 
