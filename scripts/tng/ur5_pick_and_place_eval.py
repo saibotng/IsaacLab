@@ -25,6 +25,8 @@ python scripts/tng/ur5_pick_and_place_eval.py --headless --enable_cameras --blac
 import torch
 import argparse
 import json
+import datetime
+import os
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
@@ -64,10 +66,11 @@ from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import Gr00tInferenceClient
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.rfm_action_manager import RFMActionManager
 from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
+from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import DEFAULT_PROMPT
 
-DEFAULT_TASK_DESCRIPTION = "Pick up the blue cube and place it on the black platform"
-
-
+def print_verbose_info_for_subtasks(subtasks: list[str], obs) -> None:
+    for subtask in subtasks:
+        print(f"Envs achieving subtask '{subtask}':{obs['subtasks'][subtask].nonzero(as_tuple=False).squeeze(-1).tolist()}")
 
 def main(argv: list[str] | None = None) -> None:
     env_cfg: PickAndPlaceEnvCfg = parse_env_cfg(
@@ -76,7 +79,8 @@ def main(argv: list[str] | None = None) -> None:
         use_fabric=not args.disable_fabric,
         num_envs=args.num_envs
     )
-    result_dict = {}
+
+
     if args.bench_from_yaml:
         patch_env_config_for_configuration_scheduling(env_cfg, args.bench_from_yaml)
 
@@ -95,63 +99,51 @@ def main(argv: list[str] | None = None) -> None:
     success_counter = 0
     env_ids = torch.arange(num_envs, device=device)
 
-    if scheduler:
-        results_dict = scheduler.get_empty_results_dict()
-    try:
-        while simulation_app.is_running():
+    #try:
+    while simulation_app.is_running():
 
-            with torch.inference_mode():
+        with torch.inference_mode():
 
-                prompts = scheduler.get_prompts(env_ids) if scheduler else [DEFAULT_TASK_DESCRIPTION]*num_envs
+            if scheduler:
+                prompts = scheduler.get_prompts(env_ids)
+                scheduler.update_metrics(obs)
+            else:
+                prompts = [DEFAULT_PROMPT]*num_envs
+                print_verbose_info_for_subtasks(["object_reached_target", "object_in_gripper_reach", "object_lifted"], obs)
 
-                idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
-
-                env_actions = rfm_action_manager.get_targets(obs, prompts, idle_mask)
-                obs, _, terminated, truncated, _ = env.step(env_actions)
-                done_mask = (terminated | truncated).to(device=device)
-                rfm_action_manager.update_target_tracking(obs, done_mask)
-
-                if done_mask.any():
-                    done_counter += sum(done_mask)
-                    success_mask = env.unwrapped.termination_manager.get_term("success")
-                    success_counter += sum(success_mask)
-                    # if scheduler:
-                    #     for env_id in success_mask.nonzero(as_tuple=False).squeeze(-1).tolist():
-                    #         case_idx = scheduler.cases_being_processed[env_id]
-                    #         if case_idx is not None:
-                    #             results_dict["cases"][case_idx]["metrics"]["success"] = True
+            print(f"Successful terminations: {success_counter} / {done_counter}")
 
 
-                print(f"Successful terminations: {success_counter} / {done_counter}")
+            idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
+            env_actions = rfm_action_manager.get_targets(obs, prompts, idle_mask)
+            obs, _, terminated, truncated, _ = env.step(env_actions)
+            done_mask = (terminated | truncated).to(device=device)
+            rfm_action_manager.update_target_tracking(obs, done_mask)
 
-                if not scheduler:
-                    print(f"Envs reached target: {obs['subtasks']['object_reached_target'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-                    print(f"Envs in Gripper Reach: {obs['subtasks']['object_in_gripper_reach'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-                    print(f"Envs lifted: {obs['subtasks']['object_lifted'].nonzero(as_tuple=False).squeeze(-1).tolist()}")
-
-                else:
-                    metrics_observations = {m: obs['subtasks'][m].nonzero(as_tuple=False).squeeze(-1).tolist() for m in scheduler.required_metrics}
-                    for metric, env_ids in metrics_observations.items():
-                        print(f"Envs satisfying {metric}: {env_ids}")   
-                        for env_id in env_ids:
-                            case_idx = scheduler.cases_being_processed[env_id]
-                            if case_idx is not None:
-                                results_dict["cases"][case_idx]["metrics"][metric] = True   
-
+            if done_mask.any():
+                done_counter += sum(done_mask)
+                success_counter += sum(env.unwrapped.termination_manager.get_term("success"))
+                if scheduler:
                     all_assigned = (scheduler.cursor >= len(scheduler.order))
                     inflight = len([case for case in scheduler.cases_being_processed if case is not None])
                     if all_assigned and inflight == 0:
+                        results_dict = scheduler.get_results_dict()
                         overall_success_rate = success_counter / done_counter if done_counter > 0 else 0.0
                         print(f"Overall success rate: {overall_success_rate*100:.1f}% ({success_counter} / {done_counter})")
-                        result_dict["success_rate"] = overall_success_rate
+                        results_dict["success_rate"] = overall_success_rate.float().item() 
                         print("All cases processed, exiting.")
-                        with open("results.json", "w") as f:
-                            json.dump(results_dict, f)
-                        break
+                        
+                        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                        output_path = os.path.join("tng_benchmark_results", args.bench_from_yaml, f"results_{ts}.json")
+                        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                        with open(output_path, "w") as f:
+                            json.dump(results_dict, f, ensure_ascii=False, indent=2)
+                        break 
 
-    finally:
-        try: env.close()
-        finally: simulation_app.close()
+
+    #finally:
+    try: env.close()
+    finally: simulation_app.close()
 
 
 if __name__ == "__main__":

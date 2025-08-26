@@ -176,6 +176,7 @@ class RFMActionManager:
         stacked_err = torch.stack(list(self.err_deque), dim=0)
         err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
+        #TODO: check if dwelling via pos difference is more effective than val threshold
         gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
         gripper_reached = (gripper_vel.abs() < GRIPPER_TARGET_TOL).to(device=self.device)
 

@@ -20,6 +20,7 @@ class EnvConfigScheduler:
         self.cursor = 0
         self.cases_being_processed = [None] * num_envs
         self.idle_mask = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self.results_dict = self._gen_empty_results_dict()
 
     def debug_info(self) -> str:
         """Return debug information about this scheduler instance."""
@@ -41,6 +42,11 @@ class EnvConfigScheduler:
         return prompts
     
     def get_new_case_for_env(self, env_id, env):
+        success_envs = env.unwrapped.termination_manager.get_term("success").nonzero(as_tuple=False).squeeze(-1).tolist()
+        for success_env in success_envs:
+            case_idx = self.cases_being_processed[env_id]
+            if case_idx is not None:
+                self.results_dict["cases"][case_idx]["success"] = True   
         if self.cursor >= len(self.order):
             self.idle_mask[env_id] = True
             self.cases_being_processed[env_id] = None
@@ -53,17 +59,31 @@ class EnvConfigScheduler:
             case = self.cases[case_idx]
         env.extras["all_cases_assigned"] = (self.cursor >= len(self.order))
         env.extras["idle_mask"] = self.idle_mask
+        
         return case
 
-    def get_empty_results_dict(self) -> dict:
+    def update_metrics(self, obs):
+        metrics_observations = {m: obs['subtasks'][m].nonzero(as_tuple=False).squeeze(-1).tolist() for m in self.required_metrics}
+        for metric, envs in metrics_observations.items():
+            print(f"Envs satisfying {metric}: {envs}")   
+            for env_id in envs:
+                case_idx = self.cases_being_processed[env_id]
+                if case_idx is not None:
+                    self.results_dict["cases"][case_idx]["metrics"][metric] = True 
+
+    def _gen_empty_results_dict(self) -> dict:
         result_dict = {
             "total_cases": len(self.cases),
-            "cases": deepcopy(self.cases)
+            "cases": deepcopy(self.cases),
+            "success_rate": 0.0
         }
         for case in result_dict["cases"]:
+            case["success"] = False
             case["metrics"] = {}
             for metric in self.required_metrics:
                 case["metrics"][metric] = False
         return result_dict
 
-
+    def get_results_dict(self) -> dict:
+        """Return the current results dictionary."""
+        return self.results_dict
