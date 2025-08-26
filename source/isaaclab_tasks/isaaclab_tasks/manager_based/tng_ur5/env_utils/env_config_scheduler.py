@@ -15,6 +15,7 @@ class EnvConfigScheduler:
         loaded_yaml = yaml.safe_load(open(yaml_path, "r"))
         self.cases = loaded_yaml["test_cases"]
         self.idle_case = loaded_yaml["idle_case"]
+        self.required_metrics = loaded_yaml.get("required_metrics", [])
         self.order = list(range(len(self.cases)))
         self.cursor = 0
         self.cases_being_processed = [None] * num_envs
@@ -61,6 +62,8 @@ class EnvConfigScheduler:
         }
         for case in result_dict["cases"]:
             case["metrics"] = {}
+            for metric in self.required_metrics:
+                case["metrics"][metric] = False
         return result_dict
 
 

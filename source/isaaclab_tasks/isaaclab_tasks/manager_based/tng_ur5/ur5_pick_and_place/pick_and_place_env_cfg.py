@@ -242,6 +242,7 @@ class ObservationsCfg:
         object_reached_target = ObsTerm(func=mdp.object_reached_goal)
         object_lifted = ObsTerm(func=mdp.object_lifted)
         object_in_gripper_reach = ObsTerm(func=mdp.object_in_gripper_reach)
+        success = ObsTerm(func=mdp.object_reached_goal_and_released_by_gripper)
 
         def __post_init__(self):
             self.enable_corruption = False
