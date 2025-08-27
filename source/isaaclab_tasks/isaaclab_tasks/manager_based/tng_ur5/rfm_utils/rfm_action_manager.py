@@ -67,7 +67,7 @@ class RFMActionManager:
         self.action_dim = action_dim
         self.device = device
         self.buffer = torch.zeros(num_envs, chunk_size, action_dim, device=device)
-        self.ptr = torch.full((num_envs,), chunk_size, dtype=torch.long, device=device)
+        self.ptr = torch.full((num_envs,), 0, dtype=torch.long, device=device)
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
         self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)
         self.last_raw_action_dicts = [None for _ in range(num_envs)]
@@ -75,6 +75,9 @@ class RFMActionManager:
 
         self.err_deque = deque(maxlen=4)
         self.err_deque.append(torch.zeros(num_envs, device=device))
+
+        self.gripper_pos_deque = deque(maxlen=2)
+        self.gripper_pos_deque.append(torch.zeros(num_envs, device=device))
 
         self.action_idx_deque = deque(maxlen=4)
         self.action_idx_deque.append(torch.zeros(num_envs, device=device))
@@ -97,13 +100,13 @@ class RFMActionManager:
         self.buffer[mask] = src
         self.ptr[mask] = 0
         self.current_target[mask] = self.buffer[mask, 0, :]
-        self.last_action_reached[mask] = (self.chunk_size == 1)
+        self.last_action_reached[mask] = (self.action_horizon == 1)
 
 
     def maybe_update_targets(self, update_mask: torch.Tensor):
         if not update_mask.any():
             return
-        
+        #TODO: store latest observations for envs that get updated. Don't forget to clear them on reset. Don't forget to clone(). First check if similar to current approach. If yes, this is awood workflow for delta tcp as well
         at_last_now = update_mask & (self.ptr == (self.action_horizon - 1))
         if at_last_now.any():
             self.last_action_reached[at_last_now] = True
@@ -119,7 +122,7 @@ class RFMActionManager:
             return
         self.buffer[done_mask] = 0
         self.current_target[done_mask] = 0
-        self.ptr[done_mask] = self.chunk_size
+        self.ptr[done_mask] = 0
         self.last_action_reached[done_mask] = True
         # Clear the last raw action dicts for reset environments
         done_indices = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
@@ -161,9 +164,17 @@ class RFMActionManager:
         stacked_err = torch.stack(list(self.err_deque), dim=0)
         err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
-        #TODO: check if dwelling via pos difference is more effective than val threshold
+        #TODO: decide for one gripper reached option
+
+        gripper_pos = obs['gripper_joint']['gripper_joint_pos'].squeeze(1)
+
+        self.gripper_pos_deque.append(gripper_pos)
+        stacked_gripper_pos = torch.stack(list(self.gripper_pos_deque), dim=0)
+        gripper_pos_span = stacked_gripper_pos.max(dim=0).values - stacked_gripper_pos.min(dim=0).values
+
         gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
-        gripper_reached = (gripper_vel.abs() < GRIPPER_TARGET_TOL).to(device=self.device)
+        gripper_reached_old = (gripper_vel.abs() < GRIPPER_TARGET_TOL).to(device=self.device)
+        gripper_reached = (gripper_pos_span < 0.0001).to(device=self.device)
 
         self.action_idx_deque.append(self.ptr.clone())
         stacked_action_idx = torch.stack(list(self.action_idx_deque), dim=0)
@@ -180,17 +191,24 @@ class RFMActionManager:
             print(f"WARNING: Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
 
     def construct_gr00t_obs_from_env_obs_and_prompt(self, full_obs: dict, env_idx, prompt: str):
+            if self.ptr[env_idx] == 0:
+                arm_delta = np.zeros((1, full_obs["arm_joints"]["arm_joint_pos"].shape[-1]), dtype=np.float64)
+                gripper_delta = np.zeros((1, full_obs["gripper_joint"]["gripper_joint_pos"].shape[-1]), dtype=np.float64)
+            else:
+                delta_obs = self.buffer[env_idx, self.ptr[env_idx]] - self.buffer[env_idx, self.ptr[env_idx]-1]
+                arm_delta = delta_obs[:6].cpu().unsqueeze(0).numpy().astype(np.float64)
+                gripper_delta = delta_obs[6:7].cpu().unsqueeze(0).numpy().astype(np.float64)
+
             gr00t_obs = {
                 "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
                 "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
                 "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
-                "state.delta_robot_arm": np.expand_dims(self.last_raw_action_dicts[env_idx]["action.delta_robot_arm"][self.ptr[env_idx]-1].astype(np.float64), axis=0) if self.last_raw_action_dicts[env_idx] is not None else np.zeros((1, full_obs["arm_joints"]["arm_joint_pos"].shape[-1]), dtype=np.float64),
-                "state.delta_gripper": np.expand_dims(np.array([self.last_raw_action_dicts[env_idx]["action.delta_gripper"][self.ptr[env_idx]-1]], dtype=np.float64), axis=0) if self.last_raw_action_dicts[env_idx] is not None else np.zeros((1, full_obs["gripper_joint"]["gripper_joint_pos"].shape[-1]), dtype=np.float64),
+                "state.delta_robot_arm": arm_delta,
+                "state.delta_gripper": gripper_delta,
                 "annotation.human.action.task_description": [prompt],
             }
-            #TODO: build deltas from action chunk and compare to current method. Goal: deltas should be independent of control mode
             return gr00t_obs
     
     def construct_action_chunk_from_obs_for_idle_envs(self, obs: dict, env_idx: int) -> torch.Tensor:
