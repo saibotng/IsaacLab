@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(description="Pick and place state machine for p
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -130,6 +130,7 @@ def infer_state_machine(
     offset: wp.array(dtype=wp.transform),
     position_threshold: float,
     offset_item_drop: wp.array(dtype=wp.transform),
+    offset_gripping_center: wp.array(dtype=wp.transform),
     original_object_pose: wp.array(dtype=wp.transform),
 ):
     # retrieve thread id
@@ -147,7 +148,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.APPROACH_ABOVE_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid], object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -161,7 +162,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.APPROACH_OBJECT:
-        des_ee_pose[tid] = object_pose[tid]
+        des_ee_pose[tid] = wp.transform_multiply(offset_gripping_center[tid], object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -174,7 +175,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.GRASP_OBJECT:
-        des_ee_pose[tid] = object_pose[tid]
+        des_ee_pose[tid] = wp.transform_multiply(offset_gripping_center[tid], object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE
         # wait for a while
         if sm_wait_time[tid] >= PickPlaceSmWaitTime.GRASP_OBJECT:
@@ -183,7 +184,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.LIFT_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid], original_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], original_object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -197,7 +198,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.MOVE_ABOVE_TARGET:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE  # Keep gripper closed while moving
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -211,7 +212,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.APPROACH_TARGET:
-        des_ee_pose[tid] = wp.transform_multiply(offset_item_drop[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_item_drop[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -225,7 +226,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.RELEASE_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset_item_drop[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_item_drop[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         # wait for a while
         if sm_wait_time[tid] >= PickPlaceSmWaitTime.RELEASE_OBJECT:
@@ -234,7 +235,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.RETRACT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -297,12 +298,14 @@ class PickAndPlaceSm:
         # approach above object offset
         self.offset = torch.zeros((self.num_envs, 7), device=self.device)
         self.offset[:, 2] = 0.12
-        self.offset[:, -1] = 1.0  # warp expects quaternion as (x, y, z, w)
 
         # approach above object offset
         self.offset_item_drop = torch.zeros((self.num_envs, 7), device=self.device)
         self.offset_item_drop[:, 2] = 0.03
-        self.offset_item_drop[:, -1] = 1.0  # warp expects quaternion as (x, y, z, w)
+
+        self.offset_gripping_center = torch.zeros((self.num_envs, 7), device=self.device)
+        self.offset_gripping_center[:, 2] = 0.18
+        self.offset_gripping_center[:, -1] = 1.0
 
         # convert to warp
         self.sm_dt_wp = wp.from_torch(self.sm_dt, wp.float32)
@@ -312,6 +315,7 @@ class PickAndPlaceSm:
         self.des_gripper_state_wp = wp.from_torch(self.des_gripper_state, wp.float32)
         self.offset_wp = wp.from_torch(self.offset, wp.transform)
         self.offset_item_drop_wp = wp.from_torch(self.offset_item_drop, wp.transform)
+        self.offset_gripping_center_wp = wp.from_torch(self.offset_gripping_center, wp.transform)
         self.original_object_pose_wp = None
 
     def reset_idx(self, env_ids: Sequence[int] = None):
@@ -352,6 +356,7 @@ class PickAndPlaceSm:
                 self.offset_wp,
                 self.position_threshold,
                 self.offset_item_drop_wp,
+                self.offset_gripping_center_wp,
                 self.original_object_pose_wp,
             ],
             device=self.device,

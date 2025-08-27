@@ -40,7 +40,7 @@ class UR5CubePickAndPlaceEnvCfg(joint_pos_env_cfg.UR5CubePickAndPlaceEnvCfg):
                 command_type="pose", use_relative_mode=False, ik_method="dls"
             ),
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(
-                pos=[0.0, 0.0, 0.18]
+                pos=[0.0, 0.0, 0.0]
             ),
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(

@@ -152,7 +152,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/wrist_3_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=[0.0, 0.0, 0.18],
+                        pos=[0.0, 0.0, 0.0],
                     ),
                 ),
             ],
