@@ -7,29 +7,17 @@ import os
 import json
 from copy import deepcopy
 
-class EnvConfigScheduler:
+class EnvConfigSchedulerBase:
     def __init__(self, yaml_path: str, num_envs, device):
-        """Initialize the scheduler from a YAML configuration file.
-        
-        Args:
-            yaml_path: Path to the YAML file containing the cases configuration
-            cursor: Starting cursor position (default: 0)
-        """
-        loaded_yaml = yaml.safe_load(open(yaml_path, "r"))
-        self.name = loaded_yaml.get("name", "Unknown")
-        self.cases = loaded_yaml["test_cases"]
-        self.idle_case = loaded_yaml["idle_case"]
-        self.required_metrics = loaded_yaml.get("required_metrics", [])
+        self.loaded_yaml = yaml.safe_load(open(yaml_path, "r"))
+        self.name = self.loaded_yaml.get("name", "Unknown")
+        self.cases = self.loaded_yaml["test_cases"]
+        self.idle_case = self.loaded_yaml["idle_case"]
         self.order = list(range(len(self.cases)))
         self.cursor = 0
         self.cases_being_processed = [None] * num_envs
         self.idle_mask = torch.zeros(num_envs, dtype=torch.bool, device=device)
-        self.results_dict = self._gen_empty_results_dict()
 
-    def debug_info(self) -> str:
-        """Return debug information about this scheduler instance."""
-        return f"Scheduler ID: {id(self)}, processed_cases: {self.cases_being_processed}, cursor: {self.cursor}"
-    
     def register_in_env(self, env):
         env.extras["scheduler"] = self
 
@@ -46,11 +34,6 @@ class EnvConfigScheduler:
         return prompts
     
     def get_new_case_for_env(self, env_id, env):
-        success_mask = env.unwrapped.termination_manager.get_term("success")
-        if success_mask[env_id]:
-            case_idx = self.cases_being_processed[env_id]
-            if case_idx is not None:
-                self.results_dict["cases"][case_idx]["success"] = True   
         if self.cursor >= len(self.order):
             self.idle_mask[env_id] = True
             self.cases_being_processed[env_id] = None
@@ -65,6 +48,46 @@ class EnvConfigScheduler:
         env.extras["idle_mask"] = self.idle_mask
         
         return case
+
+
+class EnvConfigSchedulerDatagen(EnvConfigSchedulerBase):
+    def __init__(self, yaml_path: str, num_envs, device):
+        super().__init__(yaml_path, num_envs, device)
+
+    def get_travel_heights_for_envs(self, env_ids) -> list[float]:
+        travel_heights = []
+        for env_id in env_ids:
+            case_idx = self.cases_being_processed[env_id]
+            if case_idx is not None:
+                case = self.cases[case_idx]
+                travel_height = case["travel_height"]
+            else:
+                travel_height = self.idle_case["travel_height"]
+            travel_heights.append(travel_height)
+        return travel_heights
+
+
+class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
+    def __init__(self, yaml_path: str, num_envs, device):
+        """Initialize the scheduler from a YAML configuration file.
+        
+        Args:
+            yaml_path: Path to the YAML file containing the cases configuration
+            cursor: Starting cursor position (default: 0)
+        """
+        super().__init__(yaml_path, num_envs, device)
+        self.required_metrics = self.loaded_yaml.get("required_metrics", [])
+        self.results_dict = self._gen_empty_results_dict()
+    
+
+    def get_new_case_for_env(self, env_id, env):
+        success_mask = env.unwrapped.termination_manager.get_term("success")
+        if success_mask[env_id]:
+            case_idx = self.cases_being_processed[env_id]
+            if case_idx is not None:
+                self.results_dict["cases"][case_idx]["success"] = True   
+        return super().get_new_case_for_env(env_id, env)
+
 
     def update_metrics(self, obs):
         metrics_observations = {m: obs['subtasks'][m].nonzero(as_tuple=False).squeeze(-1).tolist() for m in self.required_metrics}
@@ -114,16 +137,6 @@ class EnvConfigScheduler:
         with open(output_path, "w") as f:
             json.dump(self.results_dict, f, ensure_ascii=False, indent=2)
         print_results_summary(self.results_dict)
-
-
-def _print_results_summary(results_dict: dict):
-    """Print a summary of the results."""
-    
-    print("Metric Success Rates:")
-    for metric, success_rate in results_dict["metric_successes_rates"].items():
-        print(f" - {metric}: {success_rate:.2%}")
-
-    print(f"Overall Success Rate: {results_dict['success_rate']:.2%}")
 
 def print_results_summary(results_dict: dict):
     """

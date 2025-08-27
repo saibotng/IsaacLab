@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(description="Pick and place state machine for p
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
 
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -69,7 +69,8 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
-from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerDatagen
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import GRIPPING_CENTER_OFFSET
 
 # initialize warp
 wp.init()
@@ -127,7 +128,7 @@ def infer_state_machine(
     des_object_pose: wp.array(dtype=wp.transform),
     des_ee_pose: wp.array(dtype=wp.transform),
     gripper_state: wp.array(dtype=float),
-    offset: wp.array(dtype=wp.transform),
+    offset_travel: wp.array(dtype=wp.transform),
     position_threshold: float,
     offset_item_drop: wp.array(dtype=wp.transform),
     offset_gripping_center: wp.array(dtype=wp.transform),
@@ -148,7 +149,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.APPROACH_ABOVE_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_travel[tid] + offset_gripping_center[tid], object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -184,7 +185,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.LIFT_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], original_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_travel[tid] + offset_gripping_center[tid], original_object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -198,7 +199,7 @@ def infer_state_machine(
                 sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.MOVE_ABOVE_TARGET:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_travel[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE  # Keep gripper closed while moving
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -235,7 +236,7 @@ def infer_state_machine(
             sm_wait_time[tid] = 0.0
 
     elif state == PickPlaceSmState.RETRACT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid] + offset_gripping_center[tid], des_object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(offset_travel[tid] + offset_gripping_center[tid], des_object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
@@ -259,6 +260,7 @@ def infer_state_machine(
 
 
 class PickAndPlaceSm:
+    DEFAULT_TRAVEL_HEIGHT = 0.12
     """A simple state machine in a robot's task space to pick and place an object.
 
     The state machine is implemented as a warp kernel. It takes in the current state of
@@ -295,16 +297,19 @@ class PickAndPlaceSm:
         self.des_ee_pose = torch.zeros((self.num_envs, 7), device=self.device)
         self.des_gripper_state = torch.full((self.num_envs,), 0.0, device=self.device)
 
+        self.travel_height = PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT
+        self.item_drop_height = 0.03
+
         # approach above object offset
-        self.offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.offset[:, 2] = 0.12
+        self.offset_travel = torch.zeros((self.num_envs, 7), device=self.device)
+        self.offset_travel[:, 2] = self.travel_height
 
         # approach above object offset
         self.offset_item_drop = torch.zeros((self.num_envs, 7), device=self.device)
-        self.offset_item_drop[:, 2] = 0.03
+        self.offset_item_drop[:, 2] = self.item_drop_height
 
         self.offset_gripping_center = torch.zeros((self.num_envs, 7), device=self.device)
-        self.offset_gripping_center[:, 2] = 0.18
+        self.offset_gripping_center[:, 2] = GRIPPING_CENTER_OFFSET
         self.offset_gripping_center[:, -1] = 1.0
 
         # convert to warp
@@ -313,29 +318,37 @@ class PickAndPlaceSm:
         self.sm_wait_time_wp = wp.from_torch(self.sm_wait_time, wp.float32)
         self.des_ee_pose_wp = wp.from_torch(self.des_ee_pose, wp.transform)
         self.des_gripper_state_wp = wp.from_torch(self.des_gripper_state, wp.float32)
-        self.offset_wp = wp.from_torch(self.offset, wp.transform)
+        self.offset_travel_wp = wp.from_torch(self.offset_travel, wp.transform)
         self.offset_item_drop_wp = wp.from_torch(self.offset_item_drop, wp.transform)
         self.offset_gripping_center_wp = wp.from_torch(self.offset_gripping_center, wp.transform)
-        self.original_object_pose_wp = None
+        self.original_object_pose = torch.full(
+            (self.num_envs, 7), float('nan'), device=self.device
+        ) 
+        self.original_object_pose_wp = wp.from_torch(self.original_object_pose, wp.transform)
+        self.has_original_object_pose = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
     def reset_idx(self, env_ids: Sequence[int] = None):
         """Reset the state machine."""
         if env_ids is None:
             env_ids = slice(None)
+
         self.sm_state[env_ids] = 0
         self.sm_wait_time[env_ids] = 0.0
-        self.original_object_pose_wp = None
+        self.has_original_object_pose[env_ids] = False
+        self.original_object_pose[env_ids] = float('nan')
 
-    def compute(self, ee_pose: torch.Tensor, object_pose: torch.Tensor, des_object_pose: torch.Tensor) -> torch.Tensor:
+    def compute(self, ee_pose: torch.Tensor, object_pose: torch.Tensor, des_object_pose: torch.Tensor, travel_height: torch.Tensor) -> torch.Tensor:
         """Compute the desired state of the robot's end-effector and the gripper."""
         # convert all transformations from (w, x, y, z) to (x, y, z, w)
+        self.offset_travel[:, 2] = travel_height
         ee_pose = ee_pose[:, [0, 1, 2, 4, 5, 6, 3]]
         object_pose = object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
         des_object_pose = des_object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
 
-        # convert to warp
-        if self.original_object_pose_wp is None:
-            self.original_object_pose_wp = wp.from_torch(object_pose.contiguous(), wp.transform)
+        needs_init = (self.sm_state == PickPlaceSmState.GRASP_OBJECT) & (~self.has_original_object_pose)
+        if needs_init.any():
+            self.original_object_pose[needs_init] = object_pose[needs_init].clone()
+            self.has_original_object_pose[needs_init] = True
         ee_pose_wp = wp.from_torch(ee_pose.contiguous(), wp.transform)
         object_pose_wp = wp.from_torch(object_pose.contiguous(), wp.transform)
         des_object_pose_wp = wp.from_torch(des_object_pose.contiguous(), wp.transform)
@@ -353,7 +366,7 @@ class PickAndPlaceSm:
                 des_object_pose_wp,
                 self.des_ee_pose_wp,
                 self.des_gripper_state_wp,
-                self.offset_wp,
+                self.offset_travel_wp,
                 self.position_threshold,
                 self.offset_item_drop_wp,
                 self.offset_gripping_center_wp,
@@ -380,13 +393,15 @@ def main():
     )
     # create environment
     if args_cli.from_yaml:
-        patch_env_config_for_configuration_scheduling(env_cfg, args_cli.from_yaml)
+        patch_env_config_for_configuration_scheduling(env_cfg, args_cli.from_yaml, "datagen")
 
     env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
     obs, _ = env.reset()
-    scheduler: EnvConfigScheduler = env.unwrapped.extras.get("scheduler", None)
+    scheduler: EnvConfigSchedulerDatagen = env.unwrapped.extras.get("scheduler", None)
+    device = env.unwrapped.device
+    num_envs = env.unwrapped.num_envs
 
-    home_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
+    home_orientation = torch.zeros((num_envs, 4), device=device)
     home_orientation[:, 0] = 0.0
     home_orientation[:, 1] = 0.70710678118
     home_orientation[:, 2] = -0.70710678118
@@ -394,12 +409,12 @@ def main():
 
     # create state machine
     pick_sm = PickAndPlaceSm(
-        env_cfg.sim.dt * env_cfg.decimation, env.unwrapped.num_envs, env.unwrapped.device, position_threshold=0.01
+        env_cfg.sim.dt * env_cfg.decimation, num_envs, device, position_threshold=0.01
     )
     done_counter = 0
     success_counter = 0
-    idle_mask = torch.zeros(env.unwrapped.num_envs, dtype=torch.bool, device=env.unwrapped.device)
-    idle_action = torch.ones((1, env.unwrapped.action_space.shape[-1]), device=env.unwrapped.device)*0.5
+    idle_mask = torch.zeros(num_envs, dtype=torch.bool, device=device)
+    idle_action = torch.ones((1, env.unwrapped.action_space.shape[-1]), device=device)*0.5
     #try:
     while simulation_app.is_running():
         # run everything in inference mode
@@ -412,8 +427,14 @@ def main():
             object_pose = obs["rigid_objects"]["object_pose"]
             target_pose = obs["rigid_objects"]["target_pose"]
 
+            if scheduler:
+                travel_height = torch.tensor(scheduler.get_travel_heights_for_envs(torch.arange(num_envs, device=device)), device=device)
+
+            else:
+                travel_height = torch.full((num_envs,), PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT, device=device)
+
             actions = pick_sm.compute(
-                tcp_pose, object_pose, target_pose
+                tcp_pose, object_pose, target_pose, travel_height
             )
             actions[idle_mask] = idle_action
 

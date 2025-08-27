@@ -8,7 +8,7 @@ import isaaclab.utils.math as math_utils
 from isaaclab.managers import SceneEntityCfg
 import random
 import yaml
-from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerBase
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ def reset_env_from_scheduler(
         env: ManagerBasedEnv,
         env_ids: torch.Tensor,
         asset_cfgs: list[SceneEntityCfg],
-        scheduler: EnvConfigScheduler
+        scheduler: EnvConfigSchedulerBase
 ):
     if env.extras.get("scheduler") is None:
         scheduler.register_in_env(env)

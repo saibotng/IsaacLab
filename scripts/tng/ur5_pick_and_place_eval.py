@@ -47,7 +47,7 @@ from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_
 from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.gr00t_inference_client import Gr00tInferenceClient
 from isaaclab_tasks.manager_based.tng_ur5.rfm_utils.rfm_action_manager import RFMActionManager
-from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigScheduler
+from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerBenchmark
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import DEFAULT_PROMPT
 
 def print_verbose_info_for_subtasks(subtasks: list[str], obs) -> None:
@@ -64,13 +64,13 @@ def main(argv: list[str] | None = None) -> None:
 
 
     if args.from_yaml:
-        patch_env_config_for_configuration_scheduling(env_cfg, args.from_yaml)
+        patch_env_config_for_configuration_scheduling(env_cfg, args.from_yaml, "benchmark")
 
     gr00t_client: Gr00tInferenceClient = Gr00tInferenceClient(host="localhost", port=5555)
     env: gym.Env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Play-v0", cfg=env_cfg)
     obs, _ = env.reset()
 
-    scheduler: EnvConfigScheduler = env.unwrapped.extras.get("scheduler", None)
+    scheduler: EnvConfigSchedulerBenchmark = env.unwrapped.extras.get("scheduler", None)
 
     num_envs: int = env.unwrapped.num_envs
     action_dim: int = env.unwrapped.action_space.shape[-1]

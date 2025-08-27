@@ -27,6 +27,8 @@ GRIPPER_JOINTS = [
     "hand_to_right_finger",
 ]
 
+GRIPPING_CENTER_OFFSET = 0.18
+
 UR5_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=f"{BASE_DIR}/ur5/ur5/ur5.usd",
