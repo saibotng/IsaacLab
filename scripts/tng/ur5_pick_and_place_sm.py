@@ -104,7 +104,7 @@ class PickPlaceSmWaitTime:
     REST = wp.constant(0.3)
     APPROACH_ABOVE_OBJECT = wp.constant(1.0)
     APPROACH_OBJECT = wp.constant(0.3)
-    GRASP_OBJECT = wp.constant(0.5)
+    GRASP_OBJECT = wp.constant(0.4)
     LIFT_OBJECT = wp.constant(0.3)
     MOVE_ABOVE_TARGET = wp.constant(0.2)
     APPROACH_TARGET = wp.constant(0.3)
@@ -154,7 +154,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold,
+            position_threshold * 0.4,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.APPROACH_ABOVE_OBJECT:
@@ -168,7 +168,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold,
+            position_threshold * 0.2,
         ):
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.APPROACH_OBJECT:
                 # move to next state and reset wait time
@@ -190,7 +190,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            0.15,
+            position_threshold,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.LIFT_OBJECT:
@@ -204,7 +204,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            0.1,
+            position_threshold,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.MOVE_ABOVE_TARGET:
@@ -218,7 +218,7 @@ def infer_state_machine(
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
-            position_threshold * 0.25,
+            position_threshold * 0.1,
         ):
             # wait for a while
             if sm_wait_time[tid] >= PickPlaceSmWaitTime.APPROACH_TARGET:
@@ -380,7 +380,6 @@ class PickAndPlaceSm:
         # convert to torch
         return torch.cat([des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
 
-#TODO: remove magic numbers
 #TODO: improve and parametrize state machine (and use home orientation)
 
 def main():
@@ -409,60 +408,57 @@ def main():
 
     # create state machine
     pick_sm = PickAndPlaceSm(
-        env_cfg.sim.dt * env_cfg.decimation, num_envs, device, position_threshold=0.01
+        env_cfg.sim.dt * env_cfg.decimation, num_envs, device, position_threshold=0.06
     )
     done_counter = 0
     success_counter = 0
     idle_mask = torch.zeros(num_envs, dtype=torch.bool, device=device)
     idle_action = torch.ones((1, env.unwrapped.action_space.shape[-1]), device=device)*0.5
-    #try:
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            if scheduler:
-                idle_mask = scheduler.idle_mask.clone()
+    try:
+        while simulation_app.is_running():
+            # run everything in inference mode
+            with torch.inference_mode():
+                if scheduler:
+                    idle_mask = scheduler.idle_mask.clone()
 
-            env.unwrapped.extras["state"] = pick_sm.sm_state
-            tcp_pose = obs["end_effector"]
-            object_pose = obs["rigid_objects"]["object_pose"]
-            target_pose = obs["rigid_objects"]["target_pose"]
-
-            if scheduler:
-                travel_height = torch.tensor(scheduler.get_travel_heights_for_envs(torch.arange(num_envs, device=device)), device=device)
-
-            else:
-                travel_height = torch.full((num_envs,), PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT, device=device)
-
-            actions = pick_sm.compute(
-                tcp_pose, object_pose, target_pose, travel_height
-            )
-            actions[idle_mask] = idle_action
-
-            obs, _, terminated, truncated, _ = env.step(actions)
-            done_mask = (terminated | truncated).to(device=env.unwrapped.device)
-
-            if done_mask.any():
-                relevant_dones = done_mask & (~idle_mask)
-                relevant_successes = env.unwrapped.termination_manager.get_term("success").to(device=env.unwrapped.device) & (~idle_mask)
-                done_counter += sum(relevant_dones)
-                success_counter += sum(relevant_successes)
-                print(f"Successful terminations: {success_counter} / {done_counter}")
-                pick_sm.reset_idx(done_mask.nonzero(as_tuple=False).squeeze(-1))
+                env.unwrapped.extras["state"] = pick_sm.sm_state
+                tcp_pose = obs["end_effector"]
+                object_pose = obs["rigid_objects"]["object_pose"]
+                target_pose = obs["rigid_objects"]["target_pose"]
 
                 if scheduler:
-                    all_assigned = (scheduler.cursor >= len(scheduler.order))
-                    inflight = len([case for case in scheduler.cases_being_processed if case is not None])
-                    if all_assigned and inflight == 0:
-                        print("All cases processed, exiting.")
-                        break
-    # finally:
+                    travel_height = torch.tensor(scheduler.get_travel_heights_for_envs(torch.arange(num_envs, device=device)), device=device)
 
-    try: env.close()
-    finally: simulation_app.close()
+                else:
+                    travel_height = torch.full((num_envs,), PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT, device=device)
+
+                actions = pick_sm.compute(
+                    tcp_pose, object_pose, target_pose, travel_height
+                )
+                actions[idle_mask] = idle_action
+
+                obs, _, terminated, truncated, _ = env.step(actions)
+                done_mask = (terminated | truncated).to(device=env.unwrapped.device)
+
+                if done_mask.any():
+                    relevant_dones = done_mask & (~idle_mask)
+                    relevant_successes = env.unwrapped.termination_manager.get_term("success").to(device=env.unwrapped.device) & (~idle_mask)
+                    done_counter += sum(relevant_dones)
+                    success_counter += sum(relevant_successes)
+                    print(f"Successful terminations: {success_counter} / {done_counter}")
+                    pick_sm.reset_idx(done_mask.nonzero(as_tuple=False).squeeze(-1))
+
+                    if scheduler:
+                        all_assigned = (scheduler.cursor >= len(scheduler.order))
+                        inflight = len([case for case in scheduler.cases_being_processed if case is not None])
+                        if all_assigned and inflight == 0:
+                            print("All cases processed, exiting.")
+                            break
+    finally:
+        try: env.close()
+        finally: simulation_app.close()
 
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
     simulation_app.close()
