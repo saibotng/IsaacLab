@@ -32,22 +32,33 @@ def object_reached_goal(
     distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
     return distance < threshold
 
+# def object_lifted(
+#     env: ManagerBasedRLEnv,
+#     threshold: float = 0.05,
+#     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+#     table_name = "Table"
+# ) -> torch.Tensor:
+
+#     object: RigidObject = env.scene[object_cfg.name]
+#     table_view = XFormPrim(prim_paths_expr=f"{env.scene.env_regex_ns}/{table_name}")
+#     table_pos, _ = table_view.get_local_poses()
+#     height_above_table = torch.norm(table_pos[:, 2:3] - object.data.root_pos_w[:, 2:3], dim=1)
+#     return height_above_table > threshold
+
+
 def object_lifted(
     env: ManagerBasedRLEnv,
+    table_offset: float,
     threshold: float = 0.05,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    table_name = "Table"
 ) -> torch.Tensor:
-
     object: RigidObject = env.scene[object_cfg.name]
-    table_view = XFormPrim(prim_paths_expr=f"{env.scene.env_regex_ns}/{table_name}")
-    table_pos, _ = table_view.get_local_poses()
-    height_above_table = torch.norm(table_pos[:, 2:3] - object.data.root_pos_w[:, 2:3], dim=1)
+    height_above_table = torch.norm(table_offset - object.data.root_pos_w[:, 2:3], dim=1)
     return height_above_table > threshold
 
 def object_in_gripper_reach(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.06,
+    threshold: float = 0.24,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:

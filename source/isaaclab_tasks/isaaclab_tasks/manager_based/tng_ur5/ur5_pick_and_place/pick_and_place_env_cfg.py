@@ -33,7 +33,10 @@ from math import pi
 load_dotenv()  # loads variables from .env into os.environ
 
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
-TABLE_HEIGHT = 0.0
+TABLE_SCALING_FACTOR = 1.7
+TABLE_HEIGHT = 0.4165 * TABLE_SCALING_FACTOR
+TABLE_OFFSET = -0.01
+
 DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
 # Scene definition
@@ -67,16 +70,21 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     stand = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Stand",
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, 0], rot=[0.707, 0, 0, 0.707]),
-        spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/Stand/stand_instanceable.usd", scale=(1.55, 1.55, 1.55)),
+        spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/Stand/stand_instanceable.usd", scale=(1.0, 1.0, 1.0)),
     )
 
 
     # Table
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.3, TABLE_HEIGHT], rot=[0.707, 0, 0, -0.707]),
-        spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/ThorlabsTable/table_instanceable.usd")
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
+        spawn=UsdFileCfg(
+            usd_path="/home/innovation-hacking/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench_inst.usd",
+            variants={"PhysicsVariant": "RigidBody"},
+            scale=(TABLE_SCALING_FACTOR, 1.0, TABLE_SCALING_FACTOR)
+            )
     )
+
     # plane
     plane = AssetBaseCfg(
         prim_path="/World/GroundPlane",
@@ -162,7 +170,7 @@ class TerminationsCfg_SM:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_HEIGHT-0.05, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
     )
 
     success = DoneTerm(
@@ -176,7 +184,7 @@ class TerminationsCfg_Inference:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_HEIGHT-0.05, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
     )
 
     success = DoneTerm(
@@ -240,7 +248,7 @@ class ObservationsCfg:
     @configclass
     class SubtaskObsCfg(ObsGroup):
         object_reached_target = ObsTerm(func=mdp.object_reached_goal)
-        object_lifted = ObsTerm(func=mdp.object_lifted)
+        object_lifted = ObsTerm(func=mdp.object_lifted, params={"table_offset": TABLE_OFFSET})
         object_in_gripper_reach = ObsTerm(func=mdp.object_in_gripper_reach)
 
         def __post_init__(self):
@@ -261,7 +269,6 @@ class ObservationRecorder(RecorderTerm):
     Dump the *already‑computed* observations that the
     ObservationManager buffered this step.
     """
-    #TODO: make benchmark scheduler visible here and only record non idle envs
     def record_pre_step(self):
         obs = self._env.obs_buf
         obs_dict = {

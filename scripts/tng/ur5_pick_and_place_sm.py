@@ -380,7 +380,7 @@ class PickAndPlaceSm:
         # convert to torch
         return torch.cat([des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
 
-#TODO: improve and parametrize state machine (and use home orientation)
+
 
 def main():
     # parse configuration

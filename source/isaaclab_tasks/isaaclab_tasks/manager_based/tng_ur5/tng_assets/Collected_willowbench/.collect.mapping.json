@@ -1,0 +1,107 @@
+{
+    "version": "1.0",
+    "file_records": [
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/thumbnail_rigs/thumb_rig_prop.usd",
+            "source_hash": "53cbf231f4098cb58c334a2b3061b44f28c192ef",
+            "target_url": "./common_tools/content_tagging/thumbnail_rigs/thumb_rig_prop.usd",
+            "target_hash": "b74382be1356ba008b2ec96a01c9f76c61d4a7c2"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Metal_A.png",
+            "source_hash": "d7cb93fb3cae729afff495c53ea8fbddca470641",
+            "target_url": "./Textures/WillowTable_Metal_A.png",
+            "target_hash": "5f3d49268640770ced117d782c7495a981ee82c5"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Metal_R.png",
+            "source_hash": "865c195459f0b8a985c42ab1d0e50b05112ab66d",
+            "target_url": "./Textures/WillowTable_Metal_R.png",
+            "target_hash": "6ec3935a04e16afe30b2c9675c4252670af26c35"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Pad_A.png",
+            "source_hash": "aca6eaa6ee37776664fd35d4ba30eff01ede509c",
+            "target_url": "./Textures/WillowTable_Pad_A.png",
+            "target_hash": "2949a3de5a3b6459f3724637536f7ee059741a47"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Pad_R.png",
+            "source_hash": "d1154ccc0144de0c6127da2e849b064b38b5a5ae",
+            "target_url": "./Textures/WillowTable_Pad_R.png",
+            "target_hash": "9621896baab531d31342eb6dd77f2b0bf1945963"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Wood_A.png",
+            "source_hash": "623bc3ba4389a11c68a7e6999c95bb7fdd808794",
+            "target_url": "./Textures/WillowTable_Wood_A.png",
+            "target_hash": "7f8cd3b41869eed96087c7e67d156d9ae52ad82b"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Wood_N.png",
+            "source_hash": "bd06ad5d95b0b5342119f543ea99b77858c0a91a",
+            "target_url": "./Textures/WillowTable_Wood_N.png",
+            "target_hash": "8c54889b29e8463006e3b92802f0301ee4147fd6"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/willowbench/Textures/WillowTable_Wood_R.png",
+            "source_hash": "a85b97c024e4e7750f2b6d84d614bd2ed1a86ddb",
+            "target_url": "./Textures/WillowTable_Wood_R.png",
+            "target_hash": "3cc4b1156734b7fda49bca751b484d56d6eebe81"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/materials/SimPBR.mdl",
+            "source_hash": "7a01b4635762966752279777fbcc2d5bad4dc8ca",
+            "target_url": "./materials/SimPBR.mdl",
+            "target_hash": "2488c06fbf2c4a2fe39033012bcb225a08aa80fb"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/icons/camera_frame_alpha.png",
+            "source_hash": "e9113791be17b69a8bc79a1e969f8dcd17459950",
+            "target_url": "./common_tools/content_tagging/icons/camera_frame_alpha.png",
+            "target_hash": "cd5916bd253acf91a465650d5ba4e9a89de52853"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/icons/srs_logo.png",
+            "source_hash": "293215b8d625c4e4f37bc4eee2ed331113bcc95c",
+            "target_url": "./common_tools/content_tagging/icons/srs_logo.png",
+            "target_hash": "d19d972776eaa8a9eba6c74df79c2d740e7b4276"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/icons/srs_logo_alpha.png",
+            "source_hash": "f60065df5d83b3b13fb5b8b01d078cc933f29976",
+            "target_url": "./common_tools/content_tagging/icons/srs_logo_alpha.png",
+            "target_hash": "883701f6e39896ddbd5a7c13f1193522c85a6b91"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/studio_lights/studio_lights.usd",
+            "source_hash": "6b9cdfcfbd1a92bce98943a357abc9b491fe95e9",
+            "target_url": "./common_tools/content_tagging/studio_lights/studio_lights.usd",
+            "target_hash": "0398c48ac0bbbd60b2bb8b0996268ffd6cabd629"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/materials/SimPBR_Model.mdl",
+            "source_hash": "76096d3c5f4d78cdd65d476cb181930ed80beaae",
+            "target_url": "./materials/SimPBR_Model.mdl",
+            "target_hash": "1e1ba26c33d45440645aa7adbefff39ea4162c1c"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/materials/baking_annotations.mdl",
+            "source_hash": "8c75cfb64def2b686f1ce2b15d788c8395e9356f",
+            "target_url": "./materials/baking_annotations.mdl",
+            "target_hash": "671669a4fc8e43177cdb735ee8b5fd9f038b0129"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/studio_lights/Materials/Backdrop_MDL/cotton_roughly_woven_rough.jpg",
+            "source_hash": "4ba8305570b5baebd32ef5cf0f352c0a09e0794f",
+            "target_url": "./common_tools/content_tagging/studio_lights/Materials/Backdrop_MDL/cotton_roughly_woven_rough.jpg",
+            "target_hash": "7b43c04fef7355e6dcf8e83fe5e5a5346202c49b"
+        },
+        {
+            "source_url": "https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/simready_content/common_tools/content_tagging/studio_lights/Materials/studio_hdri.jpeg",
+            "source_hash": "c310f3cb2ca70645f1cc9c39541fa68c1f722e14",
+            "target_url": "./common_tools/content_tagging/studio_lights/Materials/studio_hdri.jpeg",
+            "target_hash": "84bc55b58b312ef62b3a5447b91b87bbce525f56"
+        }
+    ]
+}

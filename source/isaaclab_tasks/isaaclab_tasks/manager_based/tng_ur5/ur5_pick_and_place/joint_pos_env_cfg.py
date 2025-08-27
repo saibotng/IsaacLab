@@ -14,7 +14,7 @@ import isaacsim.core.utils.prims as prim_utils
 import isaaclab.sim as sim_utils
 
 from . import mdp
-from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference, TABLE_HEIGHT
+from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference, TABLE_OFFSET
 
 ##
 # Pre-defined configs
@@ -40,13 +40,13 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             width=512,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=24.0,
+                focal_length=40.0,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(0.0, -0.1, 0.07),
+                pos=(0.0, -0.12, 0.035),
                 rot=(0.95, -0.3, 0.0, 0.0),
             ),
         )
@@ -124,7 +124,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.5), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_HEIGHT + 0.05], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.05], rot=[1, 0, 0, 0]),
         )
 
         self.scene.target_object = RigidObjectCfg(
@@ -136,7 +136,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_HEIGHT + 0.05], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.05], rot=[1, 0, 0, 0]),
         )
 
         # Listens to the required transforms

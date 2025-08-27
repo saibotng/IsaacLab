@@ -1,7 +1,4 @@
-import math, random, yaml, torch
-
-from isaaclab.envs.manager_based_env import ManagerBasedEnv
-from isaaclab.managers import SceneEntityCfg
+import yaml, torch
 import datetime
 import os
 import json
@@ -185,7 +182,7 @@ def print_results_summary(results_dict: dict):
     print("\nMetric success rates")
     print(subline)
     if metric_rates:
-        for m in sorted(metric_rates):
+        for m in metric_rates:
             print(f" - {m:<24} {pct(metric_rates[m])}")
     else:
         print("No metrics were specified.")
