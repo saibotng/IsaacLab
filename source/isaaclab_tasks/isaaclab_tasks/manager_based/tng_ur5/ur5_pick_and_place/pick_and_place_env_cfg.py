@@ -35,7 +35,7 @@ load_dotenv()  # loads variables from .env into os.environ
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 TABLE_SCALING_FACTOR = 1.7
 TABLE_HEIGHT = 0.4165 * TABLE_SCALING_FACTOR
-TABLE_OFFSET = -0.01
+TABLE_OFFSET = -0.08
 
 DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
