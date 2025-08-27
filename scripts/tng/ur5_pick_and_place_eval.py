@@ -131,17 +131,13 @@ def main(argv: list[str] | None = None) -> None:
                     all_assigned = (scheduler.cursor >= len(scheduler.order))
                     inflight = len([case for case in scheduler.cases_being_processed if case is not None])
                     if all_assigned and inflight == 0:
-                        results_dict = scheduler.get_results_dict()
                         overall_success_rate = success_counter / done_counter if done_counter > 0 else 0.0
                         print(f"Overall success rate: {overall_success_rate*100:.1f}% ({success_counter} / {done_counter})")
-                        results_dict["success_rate"] = overall_success_rate.float().item() 
                         print("All cases processed, exiting.")
                         
-                        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                        output_path = os.path.join("tng_benchmark_results", args.from_yaml, f"results_{ts}.json")
-                        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                        with open(output_path, "w") as f:
-                            json.dump(results_dict, f, ensure_ascii=False, indent=2)
+
+
+                        scheduler.finalize_results()
                         break 
 
 
