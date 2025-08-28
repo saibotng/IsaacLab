@@ -25,6 +25,9 @@ import torch
 import datetime
 
 
+
+
+
 from . import mdp
 import os
 from dotenv import load_dotenv
@@ -35,7 +38,7 @@ load_dotenv()  # loads variables from .env into os.environ
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 TABLE_SCALING_FACTOR = 1.7
 TABLE_HEIGHT = 0.4165 * TABLE_SCALING_FACTOR
-TABLE_OFFSET = -0.08
+TABLE_OFFSET = 0.0
 
 DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
@@ -73,10 +76,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/Stand/stand_instanceable.usd", scale=(1.0, 1.0, 1.0)),
     )
 
-
-    # Table
     table = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/Table",
+        prim_path="{ENV_REGEX_NS}/Table",                      # unique per-env
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
         spawn=UsdFileCfg(
             usd_path="/home/innovation-hacking/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench_inst.usd",
@@ -169,9 +170,9 @@ class TerminationsCfg_SM:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
-    )
+    # object_dropping = DoneTerm(
+    #     func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
+    # )
 
     success = DoneTerm(
         func=mdp.object_reached_goal_and_last_state_reached,
@@ -183,9 +184,9 @@ class TerminationsCfg_Inference:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
-    )
+    # object_dropping = DoneTerm(
+    #     func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
+    # )
 
     success = DoneTerm(
         func=mdp.object_reached_goal_and_released_by_gripper

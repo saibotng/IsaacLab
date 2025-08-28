@@ -33,7 +33,6 @@ def object_reached_goal_and_last_state_reached(
     done = object_at_goal & last_state_reached
     if done.sum() > 0:
         print(f"Object reached goal and last state reached: IDs {done.nonzero(as_tuple=False).squeeze(-1).tolist()} envs out of {env.scene.num_envs}.")
-
     return done
 
 

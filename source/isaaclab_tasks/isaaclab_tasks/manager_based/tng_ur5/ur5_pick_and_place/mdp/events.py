@@ -11,10 +11,15 @@ import yaml
 from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerBase
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
 
+from isaacsim.core.utils import prims as prim_utils
+from isaacsim.core.prims.impl.xform_prim import XFormPrim
+import numpy as np
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
-
+def add_lists(a, b):
+    return (np.array(a) + np.array(b)).tolist()
 
 def reset_env_from_scheduler(
         env: ManagerBasedEnv,
@@ -31,13 +36,34 @@ def reset_env_from_scheduler(
         try:
             obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
             tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
-            poses = [obj_pos + obj_rpy, tgt_pos + tgt_rpy]
+            table_offset_pos, table_offset_rpy = case["table_offset"]["pos"], convert_deg_to_rad(case["table_offset"]["rpy"])
+            object_poses = [add_lists(obj_pos, table_offset_pos) + obj_rpy, add_lists(tgt_pos, table_offset_pos) + tgt_rpy]
 
-            set_rigid_object_poses(env, env_id, asset_cfgs, poses)
+            set_rigid_object_poses(env, env_id, asset_cfgs, object_poses)
+            #set_table_pose_offset(env, env_id, table_offset_pos, table_offset_rpy)
+            #patch_mdps_dependencies()
 
         except KeyError as e:
             print(f"[WARNING] Missing key in case definition: {e}. {e} will be set to default.")
-    
+
+def set_table_pose_offset(
+        env: ManagerBasedEnv,
+        env_id: torch.Tensor,
+        pos: list[float],
+        rpy: list[float]
+): 
+
+    default_pos = torch.tensor([env.cfg.scene.table.init_state.pos], device=env.device)
+    default_rot = torch.tensor(env.cfg.scene.table.init_state.rot, device=env.device)
+    table_path = env.scene.env_prim_paths[env_id] + "/Table"
+
+    table = XFormPrim(prim_paths_expr=table_path)
+    quat = math_utils.quat_from_euler_xyz(roll = torch.tensor(rpy[0], device=env.device), pitch = torch.tensor(rpy[1], device=env.device), yaw = torch.tensor(rpy[2], device=env.device))
+    new_table_pos = torch.tensor(default_pos, device=env.device) + torch.tensor([pos], device=env.device)
+    new_table_rot = math_utils.quat_mul(default_rot, quat).unsqueeze(0)
+    table.set_local_poses(new_table_pos, new_table_rot)
+
+
 
 def reset_env_random(
     env: ManagerBasedEnv,
