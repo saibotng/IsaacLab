@@ -16,6 +16,9 @@ from typing import TYPE_CHECKING
 
 from isaaclab.managers import SceneEntityCfg
 from .observations import object_reached_goal, object_in_gripper_reach
+from isaaclab.assets import Articulation, RigidObject
+#TODO: SYNC WITH pick_and_place_env_cfg.py -> pass table height from cfg
+TABLE_HEIGHT = 0.4165 * 1.7
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -50,3 +53,17 @@ def object_reached_goal_and_released_by_gripper(
         print(f"Object reached goal and released by gripper: IDs {done.nonzero(as_tuple=False).squeeze(-1).tolist()}.")
 
     return done
+
+
+def root_height_below_reference(
+    env: ManagerBasedRLEnv, minimum_height: float, object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), reference_asset_cfg: SceneEntityCfg = SceneEntityCfg("table")
+) -> torch.Tensor:
+    """Terminate when the asset's root height is below the minimum height.
+
+    Note:
+        This is currently only supported for flat terrains, i.e. the minimum height is in the world frame.
+    """
+    # extract the used quantities (to enable type-hinting)
+    object_asset: RigidObject = env.scene[object_asset_cfg.name]
+    reference_asset: RigidObject = env.scene[reference_asset_cfg.name]
+    return object_asset.data.root_pos_w[:, 2] < reference_asset.data.root_pos_w[:, 2] - minimum_height + TABLE_HEIGHT

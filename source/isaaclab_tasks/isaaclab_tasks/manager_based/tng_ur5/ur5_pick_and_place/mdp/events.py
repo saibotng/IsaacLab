@@ -40,29 +40,10 @@ def reset_env_from_scheduler(
             object_poses = [add_lists(obj_pos, table_offset_pos) + obj_rpy, add_lists(tgt_pos, table_offset_pos) + tgt_rpy]
 
             set_rigid_object_poses(env, env_id, asset_cfgs, object_poses)
-            #set_table_pose_offset(env, env_id, table_offset_pos, table_offset_rpy)
-            #patch_mdps_dependencies()
+            set_rigid_object_poses(env, env_id, [SceneEntityCfg("table", body_names="Table")], [table_offset_pos + table_offset_rpy])
 
         except KeyError as e:
             print(f"[WARNING] Missing key in case definition: {e}. {e} will be set to default.")
-
-def set_table_pose_offset(
-        env: ManagerBasedEnv,
-        env_id: torch.Tensor,
-        pos: list[float],
-        rpy: list[float]
-): 
-
-    default_pos = torch.tensor([env.cfg.scene.table.init_state.pos], device=env.device)
-    default_rot = torch.tensor(env.cfg.scene.table.init_state.rot, device=env.device)
-    table_path = env.scene.env_prim_paths[env_id] + "/Table"
-
-    table = XFormPrim(prim_paths_expr=table_path)
-    quat = math_utils.quat_from_euler_xyz(roll = torch.tensor(rpy[0], device=env.device), pitch = torch.tensor(rpy[1], device=env.device), yaw = torch.tensor(rpy[2], device=env.device))
-    new_table_pos = torch.tensor(default_pos, device=env.device) + torch.tensor([pos], device=env.device)
-    new_table_rot = math_utils.quat_mul(default_rot, quat).unsqueeze(0)
-    table.set_local_poses(new_table_pos, new_table_rot)
-
 
 
 def reset_env_random(

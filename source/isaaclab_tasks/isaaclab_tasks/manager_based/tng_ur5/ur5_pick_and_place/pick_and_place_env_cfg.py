@@ -76,14 +76,21 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/Stand/stand_instanceable.usd", scale=(1.0, 1.0, 1.0)),
     )
 
-    table = AssetBaseCfg(
+    table = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",                      # unique per-env
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
         spawn=UsdFileCfg(
-            usd_path="/home/innovation-hacking/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench_inst.usd",
+            usd_path="/home/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench.usd",
             variants={"PhysicsVariant": "RigidBody"},
-            scale=(TABLE_SCALING_FACTOR, 1.0, TABLE_SCALING_FACTOR)
-            )
+            scale=(TABLE_SCALING_FACTOR, 1.0, TABLE_SCALING_FACTOR),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=True,
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True,
+            ),
+        ),
     )
 
     # plane
@@ -170,9 +177,9 @@ class TerminationsCfg_SM:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # object_dropping = DoneTerm(
-    #     func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
-    # )
+    object_dropping = DoneTerm(
+        func=mdp.root_height_below_reference, params={"minimum_height": 0.1}
+    )
 
     success = DoneTerm(
         func=mdp.object_reached_goal_and_last_state_reached,
@@ -184,9 +191,9 @@ class TerminationsCfg_Inference:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # object_dropping = DoneTerm(
-    #     func=mdp.root_height_below_minimum, params={"minimum_height": TABLE_OFFSET-0.1, "asset_cfg": SceneEntityCfg("object")}
-    # )
+    object_dropping = DoneTerm(
+        func=mdp.root_height_below_reference, params={"minimum_height": 0.1}
+    )
 
     success = DoneTerm(
         func=mdp.object_reached_goal_and_released_by_gripper

@@ -45,7 +45,7 @@ def object_reached_goal(
 #     height_above_table = torch.norm(table_pos[:, 2:3] - object.data.root_pos_w[:, 2:3], dim=1)
 #     return height_above_table > threshold
 
-
+#TODO just get table root pos + Table height from env -> pass table height from cfg
 def object_lifted(
     env: ManagerBasedRLEnv,
     table_offset: float,
