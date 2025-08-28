@@ -134,7 +134,7 @@ class RFMActionManager:
         self.buffer[done_mask] = 0
         self.current_target[done_mask] = 0
         self.last_action_reached[done_mask] = True
-        # Clear the last raw action dicts for reset environments
+
         done_indices = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         for idx in done_indices:
             self.observation_at_last_waypoint[idx] = None
@@ -156,8 +156,6 @@ class RFMActionManager:
                 new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
 
         self.refill(refill_mask, new_chunk)
-        #TODO: return necessary?
-        return
     
     def get_targets(self, obs, prompts, idle_mask):
         self.maybe_get_new_action_chunk_from_rfm(obs, prompts, idle_mask)
@@ -189,7 +187,7 @@ class RFMActionManager:
         action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
 
         arm_reached = err_arm < ARM_TARGET_TOL
-        stuck = (err_span < 1e-5) & (action_idx_span == 0)
+        stuck = (err_span < 1e-5) & (action_idx_span == 0) #& (gripper_reached)
         envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
 
         self.maybe_update_targets(envs_to_update_targets, obs)
