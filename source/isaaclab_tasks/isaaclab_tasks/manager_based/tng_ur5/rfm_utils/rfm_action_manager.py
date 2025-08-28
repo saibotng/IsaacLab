@@ -51,6 +51,14 @@ def convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs) -> torch
             action_chunk = convert_raw_abs_action_to_action_chunk(gr00t_action)
         return action_chunk
 
+def clone_masked_tensor_dict(obj, mask):
+    if torch.is_tensor(obj):
+        return obj[mask].clone()
+    if isinstance(obj, dict):
+        # recurse so you’re safe even if you someday add depth > 2
+        return {k: clone_masked_tensor_dict(v, mask) for k, v in obj.items()}
+    return obj 
+
 
 class RFMActionManager:
     def __init__(self, 
@@ -70,7 +78,7 @@ class RFMActionManager:
         self.ptr = torch.full((num_envs,), 0, dtype=torch.long, device=device)
         self.current_target = torch.zeros(num_envs, action_dim, device=device)
         self.last_action_reached = torch.ones(num_envs, dtype=torch.bool, device=device)
-        self.last_raw_action_dicts = [None for _ in range(num_envs)]
+        self.observation_at_last_waypoint = [None for _ in range(num_envs)]
         self.rfm_client = rfm_client
 
         self.err_deque = deque(maxlen=4)
@@ -103,16 +111,19 @@ class RFMActionManager:
         self.last_action_reached[mask] = (self.action_horizon == 1)
 
 
-    def maybe_update_targets(self, update_mask: torch.Tensor):
+    def maybe_update_targets(self, update_mask: torch.Tensor, obs):
         if not update_mask.any():
             return
         #TODO: store latest observations for envs that get updated. Don't forget to clear them on reset. Don't forget to clone(). First check if similar to current approach. If yes, this is awood workflow for delta tcp as well
         at_last_now = update_mask & (self.ptr == (self.action_horizon - 1))
+        can_advance = update_mask & (self.ptr < self.action_horizon - 1)
+
         if at_last_now.any():
             self.last_action_reached[at_last_now] = True
-
-        can_advance = update_mask & (self.ptr < self.action_horizon - 1)
+        
         if can_advance.any():
+            for env_idx in can_advance.nonzero(as_tuple=False).squeeze(-1).tolist():
+                self.observation_at_last_waypoint[env_idx] = clone_masked_tensor_dict(obs, env_idx)
             self.ptr[can_advance] += 1
             next_idx = self.ptr[can_advance]
             self.current_target[can_advance] = self.buffer[can_advance, next_idx, :]
@@ -122,12 +133,11 @@ class RFMActionManager:
             return
         self.buffer[done_mask] = 0
         self.current_target[done_mask] = 0
-        self.ptr[done_mask] = 0
         self.last_action_reached[done_mask] = True
         # Clear the last raw action dicts for reset environments
         done_indices = done_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
         for idx in done_indices:
-            self.last_raw_action_dicts[idx] = None
+            self.observation_at_last_waypoint[idx] = None
 
     def maybe_get_new_action_chunk_from_rfm(self, obs, prompts, idle_mask) -> None:
         if not self.last_action_reached.any():
@@ -144,8 +154,6 @@ class RFMActionManager:
                 gr00t_obs = self.construct_gr00t_obs_from_env_obs_and_prompt(obs, env_id, prompts[env_id])
                 gr00t_action = self.rfm_client.get_action(gr00t_obs)
                 new_chunk[k] = convert_gr00t_action_to_state_action_chunk(gr00t_action, gr00t_obs)
-                # Store the raw action dict for this environment
-                self.last_raw_action_dicts[env_id] = gr00t_action
 
         self.refill(refill_mask, new_chunk)
         #TODO: return necessary?
@@ -184,20 +192,19 @@ class RFMActionManager:
         stuck = (err_span < 1e-5) & (action_idx_span == 0)
         envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
 
-        self.maybe_update_targets(envs_to_update_targets)
+        self.maybe_update_targets(envs_to_update_targets, obs)
         self.maybe_reset_buffer(done_mask)
 
         if stuck.any():
             print(f"WARNING: Envs Stuck: {stuck.nonzero(as_tuple=False).squeeze(-1).tolist()}")
 
     def construct_gr00t_obs_from_env_obs_and_prompt(self, full_obs: dict, env_idx, prompt: str):
-            if self.ptr[env_idx] == 0:
+            if self.observation_at_last_waypoint[env_idx] is None:
                 arm_delta = np.zeros((1, full_obs["arm_joints"]["arm_joint_pos"].shape[-1]), dtype=np.float64)
                 gripper_delta = np.zeros((1, full_obs["gripper_joint"]["gripper_joint_pos"].shape[-1]), dtype=np.float64)
             else:
-                delta_obs = self.buffer[env_idx, self.ptr[env_idx]] - self.buffer[env_idx, self.ptr[env_idx]-1]
-                arm_delta = delta_obs[:6].cpu().unsqueeze(0).numpy().astype(np.float64)
-                gripper_delta = delta_obs[6:7].cpu().unsqueeze(0).numpy().astype(np.float64)
+                arm_delta = full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy() - self.observation_at_last_waypoint[env_idx]["arm_joints"]["arm_joint_pos"].cpu().unsqueeze(0).numpy().astype(np.float64)
+                gripper_delta = full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy() - self.observation_at_last_waypoint[env_idx]["gripper_joint"]["gripper_joint_pos"].cpu().unsqueeze(0).numpy().astype(np.float64)
 
             gr00t_obs = {
                 "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
