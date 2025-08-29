@@ -123,7 +123,6 @@ def reset_joints_by_degree(
     gripper_pos = math_utils.sample_uniform(
         *gripper_abs_m_range, (len(env_ids)), joint_pos.device
     )
-    test = joint_pos[:, -2].clone()
     joint_pos[:, -2] = gripper_pos
     joint_pos[:, -1] = gripper_pos
 

@@ -15,6 +15,7 @@ from isaacsim.core.utils import prims as prim_utils
 from isaacsim.core.prims.impl.xform_prim import XFormPrim
 import numpy as np
 from isaaclab.envs.mdp.events import reset_root_state_uniform
+from isaaclab.assets import Articulation
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -29,6 +30,7 @@ def reset_env_from_scheduler(
         target_asset_cfg: SceneEntityCfg = SceneEntityCfg("target_object", body_names="Target"),
         object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object", body_names="Object"),
         table_asset_cfg: SceneEntityCfg = SceneEntityCfg("table", body_names="Table"),
+        robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 
 ):
     if env.extras.get("scheduler") is None:
@@ -43,7 +45,30 @@ def reset_env_from_scheduler(
         else:
             table_offset_pos, table_offset_rpy = [0, 0, 0], [0, 0, 0]
             print("[WARNING] Missing key in case definition: 'table_offset'. FALLING BACK TO DEFAULT")
-        
+
+        if "robot_joint_offsets" in case and "gripper_offset" in case:
+            #TODO: remove reduncdancy with ur5.reset_joints_by_degree
+            robot_joint_offsets = convert_deg_to_rad(case["robot_joint_offsets"])
+            gripper_offset = case["gripper_offset"]
+
+            asset: Articulation = env.scene[robot_asset_cfg.name]
+
+            joint_pos_default = asset.data.default_joint_pos[env_id, robot_asset_cfg.joint_ids].clone()
+            joint_vel_default = asset.data.default_joint_vel[env_id, robot_asset_cfg.joint_ids].clone()
+
+            joint_pos_offsets = torch.tensor(robot_joint_offsets + gripper_offset * 2, device=env.device).unsqueeze(0)
+            joint_pos = joint_pos_default + joint_pos_offsets
+            joint_pos_limits = asset.data.soft_joint_pos_limits[env_id, robot_asset_cfg.joint_ids]
+            joint_pos = joint_pos.clamp_(joint_pos_limits[..., 0], joint_pos_limits[..., 1])
+
+            asset.write_joint_state_to_sim(
+                joint_pos.view(1, -1),
+                joint_vel_default.view(1, -1).unsqueeze(0),
+                env_ids=torch.tensor([env_id], device=env.device),
+                joint_ids=robot_asset_cfg.joint_ids,
+    )
+        else:
+            print("[WARNING] Missing key in case definition: 'robot_joint_offsets' or 'gripper_offset'. FALLING BACK TO DEFAULT")
         obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
         tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
         object_pose = add_lists(obj_pos, table_offset_pos) + add_lists(obj_rpy, table_offset_rpy)
@@ -62,6 +87,7 @@ def reset_env_random(
     target_asset_cfg: SceneEntityCfg = SceneEntityCfg("target_object", body_names="Target"),
     object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object", body_names="Object"),
     table_asset_cfg: SceneEntityCfg = SceneEntityCfg("table", body_names="Table"),
+    robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 
 ):
     if env_ids is None:
@@ -85,7 +111,7 @@ def reset_env_random(
         poses = pose_list + [table_offset]
         set_rigid_object_poses(env, cur_env, assets, poses)
 
-    reset_joints_by_degree(env, env_ids, joint_rel_degree_range, gripper_abs_m_range)
+    reset_joints_by_degree(env, env_ids, joint_rel_degree_range, gripper_abs_m_range, asset_cfg=robot_asset_cfg)
 
 def convert_deg_to_rad(deg: list[float]) -> list[float]:
     """Convert a list of angles in degrees to radians."""
