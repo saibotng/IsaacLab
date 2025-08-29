@@ -98,7 +98,6 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Successful terminations: {success_counter} / {done_counter}")
 
 
-            #idle_mask = scheduler.idle_mask if scheduler else torch.zeros(num_envs, dtype=torch.bool, device=device)
             env_actions = rfm_action_manager.get_targets(obs, prompts, idle_mask)
             obs, _, terminated, truncated, _ = env.step(env_actions)
             done_mask = (terminated | truncated).to(device=device)

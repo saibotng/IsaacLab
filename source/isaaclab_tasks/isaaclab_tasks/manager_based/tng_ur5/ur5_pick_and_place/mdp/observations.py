@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 def object_reached_goal(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.05,
+    threshold: float,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
@@ -32,29 +32,19 @@ def object_reached_goal(
     distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
     return distance < threshold
 
-# def object_lifted(
-#     env: ManagerBasedRLEnv,
-#     threshold: float = 0.05,
-#     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-#     table_name = "Table"
-# ) -> torch.Tensor:
 
-#     object: RigidObject = env.scene[object_cfg.name]
-#     table_view = XFormPrim(prim_paths_expr=f"{env.scene.env_regex_ns}/{table_name}")
-#     table_pos, _ = table_view.get_local_poses()
-#     height_above_table = torch.norm(table_pos[:, 2:3] - object.data.root_pos_w[:, 2:3], dim=1)
-#     return height_above_table > threshold
-
-#TODO just get table root pos + Table height from env -> pass table height from cfg
-def object_lifted(
-    env: ManagerBasedRLEnv,
-    table_offset: float,
-    threshold: float = 0.05,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+def root_height_above_reference(
+    env: ManagerBasedRLEnv, threshold: float, reference_specific_offset: float, object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), reference_asset_cfg: SceneEntityCfg = SceneEntityCfg("table")
 ) -> torch.Tensor:
-    object: RigidObject = env.scene[object_cfg.name]
-    height_above_table = torch.norm(table_offset - object.data.root_pos_w[:, 2:3], dim=1)
-    return height_above_table > threshold
+    """Terminate when the asset's root height is below the minimum height.
+
+    Note:
+        This is currently only supported for flat terrains, i.e. the minimum height is in the world frame.
+    """
+    # extract the used quantities (to enable type-hinting)
+    object_asset: RigidObject = env.scene[object_asset_cfg.name]
+    reference_asset: RigidObject = env.scene[reference_asset_cfg.name]
+    return object_asset.data.root_pos_w[:, 2] > reference_asset.data.root_pos_w[:, 2] + threshold + reference_specific_offset
 
 def object_in_gripper_reach(
     env: ManagerBasedRLEnv,

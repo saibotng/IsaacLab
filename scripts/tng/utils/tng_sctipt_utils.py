@@ -12,9 +12,5 @@ def patch_env_config_for_configuration_scheduling(env_cfg, yaml_path, mode):
     
     env_cfg.events.reset_env.func = reset_env_from_scheduler
     env_cfg.events.reset_env.params = {
-        "asset_cfgs": [
-            SceneEntityCfg("object", body_names="Object"),
-            SceneEntityCfg("target_object", body_names="Target"),
-        ],
         "scheduler": scheduler
     }

@@ -1,8 +1,8 @@
 # pick_place_benchmark_v1.yaml
 name: ur5_pick_place_v1
 idle_case: 
-  object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-  target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
+  object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+  target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 0.0, 0.0]}
   table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
   prompt: "Idle"
 required_metrics:
@@ -11,34 +11,34 @@ required_metrics:
   - object_in_gripper_reach
 test_cases:
   - id: case_001
-    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
-    table_offset: {pos: [0.0, 0.0, -0.2], rpy: [0.0, 0.0, 0.0]}
+    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 0.0, 0.0]}
+    table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 1"
   - id: case_002
-    object: {pos: [-0.05,  -0.1, 0.00], rpy: [0.0, 180.0, 110.0]}
-    target: {pos: [0.1, 0.1, 0.00], rpy: [0.0, 180.0, 110.0]}
-    table_offset: {pos: [0.0, 0.0, 0.2], rpy: [0.0, 0.0, 0.0]}
+    object: {pos: [-0.05,  -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [0.1, 0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 2"
   - id: case_003
-    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
+    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 0.0, 0.0]}
     table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 3"
   - id: case_004
-    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
-    table_offset: {pos: [0.0, 0.0, -0.2], rpy: [0.0, 0.0, 0.0]}
+    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 0.0, 0.0]}
+    table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 1"
   - id: case_005
-    object: {pos: [-0.05,  -0.1, 0.00], rpy: [0.0, 180.0, 110.0]}
-    target: {pos: [0.1, 0.1, 0.00], rpy: [0.0, 180.0, 110.0]}
-    table_offset: {pos: [0.0, 0.0, 0.2], rpy: [0.0, 0.0, 0.0]}
+    object: {pos: [-0.05,  -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [0.1, 0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 2"
   - id: case_006
-    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 180.0, 90.0]}
-    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 180.0, 90.0]}
-    table_offset: {pos: [0.0, 0.0, -0.2], rpy: [0.0, 0.0, 0.0]}
+    object: {pos: [0.1, -0.1, 0.00], rpy: [0.0, 0.0, 0.0]}
+    target: {pos: [-0.1,  0.05, 0.00], rpy: [0.0, 0.0, 0.0]}
+    table_offset: {pos: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
     prompt: "Pick up the blue cube and place it on the black platform 3"
 
 

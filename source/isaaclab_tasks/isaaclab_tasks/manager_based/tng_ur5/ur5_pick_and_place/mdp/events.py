@@ -14,6 +14,7 @@ from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints
 from isaacsim.core.utils import prims as prim_utils
 from isaacsim.core.prims.impl.xform_prim import XFormPrim
 import numpy as np
+from isaaclab.envs.mdp.events import reset_root_state_uniform
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -24,8 +25,11 @@ def add_lists(a, b):
 def reset_env_from_scheduler(
         env: ManagerBasedEnv,
         env_ids: torch.Tensor,
-        asset_cfgs: list[SceneEntityCfg],
-        scheduler: EnvConfigSchedulerBase
+        scheduler: EnvConfigSchedulerBase,
+        target_asset_cfg: SceneEntityCfg = SceneEntityCfg("target_object", body_names="Target"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object", body_names="Object"),
+        table_asset_cfg: SceneEntityCfg = SceneEntityCfg("table", body_names="Table"),
+
 ):
     if env.extras.get("scheduler") is None:
         scheduler.register_in_env(env)
@@ -33,41 +37,53 @@ def reset_env_from_scheduler(
     for env_id in env_ids.tolist():
         case = scheduler.get_new_case_for_env(env_id, env)
 
-        try:
-            obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
-            tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
+        if "table_offset" in case:
             table_offset_pos, table_offset_rpy = case["table_offset"]["pos"], convert_deg_to_rad(case["table_offset"]["rpy"])
-            object_poses = [add_lists(obj_pos, table_offset_pos) + obj_rpy, add_lists(tgt_pos, table_offset_pos) + tgt_rpy]
-
-            set_rigid_object_poses(env, env_id, asset_cfgs, object_poses)
-            set_rigid_object_poses(env, env_id, [SceneEntityCfg("table", body_names="Table")], [table_offset_pos + table_offset_rpy])
-
-        except KeyError as e:
-            print(f"[WARNING] Missing key in case definition: {e}. {e} will be set to default.")
-
+            set_rigid_object_poses(env, env_id, [table_asset_cfg], [table_offset_pos + table_offset_rpy])
+        else:
+            table_offset_pos, table_offset_rpy = [0, 0, 0], [0, 0, 0]
+            print("[WARNING] Missing key in case definition: 'table_offset'. FALLING BACK TO DEFAULT")
+        
+        obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
+        tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
+        object_pose = add_lists(obj_pos, table_offset_pos) + add_lists(obj_rpy, table_offset_rpy)
+        target_pose = add_lists(tgt_pos, table_offset_pos) + add_lists(tgt_rpy, table_offset_rpy)
+        set_rigid_object_poses(env, env_id, [object_asset_cfg, target_asset_cfg], [object_pose, target_pose])
 
 def reset_env_random(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
-    asset_cfgs: list[SceneEntityCfg],
     min_separation: float,
-    object_pose_range: dict[str, tuple[float, float]],
+    objects_on_table_pose_range: dict[str, tuple[float, float]],
+    table_pose_range: dict[str, tuple[float, float]],
     max_sample_tries: int,
     joint_rel_degree_range: tuple[float, float],
     gripper_abs_m_range: tuple[float, float],
+    target_asset_cfg: SceneEntityCfg = SceneEntityCfg("target_object", body_names="Target"),
+    object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object", body_names="Object"),
+    table_asset_cfg: SceneEntityCfg = SceneEntityCfg("table", body_names="Table"),
 
 ):
     if env_ids is None:
         return
+    
+    table_range_list = [table_pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    table_ranges = torch.tensor(table_range_list, device=env.device)
+    table_rand_samples = math_utils.sample_uniform(table_ranges[:, 0], table_ranges[:, 1], (len(env_ids), 6), device=env.device)
 
-    for cur_env in env_ids.tolist():
+    for i, cur_env in enumerate(env_ids.tolist()):
+        assets_on_table = [object_asset_cfg, target_asset_cfg]
+        table_offset = table_rand_samples[i].tolist()
         pose_list = sample_object_poses(
-            num_objects=len(asset_cfgs),
+            num_objects=len(assets_on_table),
             min_separation=min_separation,
-            pose_range=object_pose_range,
+            pose_range=objects_on_table_pose_range,
             max_sample_tries=max_sample_tries,
+            offset=table_offset
         )
-        set_rigid_object_poses(env, cur_env, asset_cfgs, pose_list)
+        assets = assets_on_table + [table_asset_cfg]
+        poses = pose_list + [table_offset]
+        set_rigid_object_poses(env, cur_env, assets, poses)
 
     reset_joints_by_degree(env, env_ids, joint_rel_degree_range, gripper_abs_m_range)
 
@@ -89,7 +105,8 @@ def set_rigid_object_poses(
         # Write pose to simulation
         pose_tensor = torch.tensor([pose_list[i]], device=env.device)
         positions = pose_tensor[:, 0:3] + env.scene.env_origins[env_id, 0:3] + root_states[0, 0:3]
-        orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
+        delta_orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
+        orientations = math_utils.quat_mul(delta_orientations, root_states[0, 3:7].unsqueeze(0))
         asset.write_root_pose_to_sim(
             torch.cat([positions, orientations], dim=-1), env_ids=torch.tensor([env_id], device=env.device)
         )
@@ -103,6 +120,7 @@ def sample_object_poses(
     min_separation: float = 0.0,
     pose_range: dict[str, tuple[float, float]] = {},
     max_sample_tries: int = 5000,
+    offset: list[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 ):
     range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     pose_list = []
@@ -110,6 +128,7 @@ def sample_object_poses(
     for i in range(num_objects):
         for j in range(max_sample_tries):
             sample = [random.uniform(range[0], range[1]) for range in range_list]
+            sample = (np.array(sample) + np.array(offset)).tolist()
 
             # Accept pose if it is the first one, or if reached max num tries
             if len(pose_list) == 0 or j == max_sample_tries - 1:

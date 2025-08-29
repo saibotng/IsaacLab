@@ -124,7 +124,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.5), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.05], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.03], rot=[0, -0.707, 0.707, 0]),
         )
 
         self.scene.target_object = RigidObjectCfg(
@@ -136,7 +136,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.05], rot=[1, 0, 0, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.03], rot=[0, -0.707, 0.707, 0]),
         )
 
         # Listens to the required transforms

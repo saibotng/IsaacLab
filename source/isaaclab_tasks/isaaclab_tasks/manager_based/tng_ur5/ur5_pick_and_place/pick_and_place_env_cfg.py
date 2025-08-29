@@ -38,7 +38,7 @@ load_dotenv()  # loads variables from .env into os.environ
 DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 TABLE_SCALING_FACTOR = 1.7
 TABLE_HEIGHT = 0.4165 * TABLE_SCALING_FACTOR
-TABLE_OFFSET = 0.0
+TABLE_OFFSET = -0.08
 
 DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
@@ -80,7 +80,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Table",                      # unique per-env
         init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
         spawn=UsdFileCfg(
-            usd_path="/home/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench.usd",
+            usd_path="/home/innovation-hacking/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench.usd",
             variants={"PhysicsVariant": "RigidBody"},
             scale=(TABLE_SCALING_FACTOR, 1.0, TABLE_SCALING_FACTOR),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -131,17 +131,14 @@ class EventCfg_SM:
     """Configuration for events."""
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-    #randomize_actuator_gains
-    #randomize_joint_parameters
-    #randomize_fixed_tendon_parameters
-    #randomize orientations
+
     reset_env = EventTerm(
         func=mdp.reset_env_random,
         mode="reset",
         params={
-            "object_pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (55 * (pi / 180), 125 * (pi / 180))},
+            "objects_on_table_pose_range": {"x": (-0.2, 0.2), "y": (-0.3, 0.18), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (-35 * (pi / 180), 35 * (pi / 180))},
             "min_separation": 0.15,
-            "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
+            "table_pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (-0.08, 0.08), "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},
             "max_sample_tries": 5000,
             "joint_rel_degree_range": (-10.0, 10.0),
             "gripper_abs_m_range": (0.00, 0.04),
@@ -160,9 +157,9 @@ class EventCfg_Inference:
         func=mdp.reset_env_random,
         mode="reset",
         params={
-            "object_pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (3.14, 3.14), "yaw": (70 * (pi / 180), 110 * (pi / 180))},
+            "objects_on_table_pose_range": {"x": (-0.12, 0.12), "y": (-0.22, 0.1), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (-20 * (pi / 180), 20 * (pi / 180))},
             "min_separation": 0.15,
-            "asset_cfgs": [SceneEntityCfg("object", body_names="Object"), SceneEntityCfg("target_object", body_names="Target")],
+            "table_pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (-0.04, 0.04), "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},
             "max_sample_tries": 5000,
             "joint_rel_degree_range": (-5.0, 5.0),
             "gripper_abs_m_range": (0.00, 0.01),
@@ -178,7 +175,7 @@ class TerminationsCfg_SM:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_reference, params={"minimum_height": 0.1}
+        func=mdp.root_height_below_reference, params={"threshold": 0.1, "reference_specific_offset": TABLE_HEIGHT}
     )
 
     success = DoneTerm(
@@ -192,7 +189,7 @@ class TerminationsCfg_Inference:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_reference, params={"minimum_height": 0.1}
+        func=mdp.root_height_below_reference, params={"threshold": 0.1, "reference_specific_offset": TABLE_HEIGHT}
     )
 
     success = DoneTerm(
@@ -255,8 +252,8 @@ class ObservationsCfg:
 
     @configclass
     class SubtaskObsCfg(ObsGroup):
-        object_reached_target = ObsTerm(func=mdp.object_reached_goal)
-        object_lifted = ObsTerm(func=mdp.object_lifted, params={"table_offset": TABLE_OFFSET})
+        object_reached_target = ObsTerm(func=mdp.object_reached_goal, params={"threshold": 0.05})
+        object_lifted = ObsTerm(func=mdp.root_height_above_reference, params={"threshold": 0.05, "reference_specific_offset": TABLE_HEIGHT})
         object_in_gripper_reach = ObsTerm(func=mdp.object_in_gripper_reach)
 
         def __post_init__(self):
