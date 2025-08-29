@@ -72,3 +72,5 @@ tests/
 .env
 
 tng_benchmark_results/
+tng_datasets/
+tng_benchmarks/

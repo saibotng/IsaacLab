@@ -66,7 +66,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(1.5, 0.0, 0.9),
+                pos=(1.4, 0.0, 0.75),
                 rot=(0.32651, -0.62721, -0.62721, 0.32651),
             ),
         )
@@ -87,8 +87,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(0.4, 0.9, 0.9),
-                rot=(0.0, -0.0, -0.90631, 0.42262),
+                pos=(0.5, 0.9, 0.5),
+                rot=(0.0, -0.0, -0.86603, 0.5),
             ),
         )
 
