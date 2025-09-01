@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser(description="Pick and place state machine for p
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -409,7 +409,7 @@ def main():
 
     # create state machine
     pick_sm = PickAndPlaceSm(
-        env_cfg.sim.dt * env_cfg.decimation, num_envs, position_threshold=0.07, device=device
+        env_cfg.sim.dt * env_cfg.decimation, num_envs, position_threshold=0.065, device=device
     )
     done_counter = 0
     success_counter = 0
