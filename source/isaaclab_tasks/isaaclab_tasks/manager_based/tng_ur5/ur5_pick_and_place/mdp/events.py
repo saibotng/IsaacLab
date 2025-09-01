@@ -4,24 +4,30 @@ from __future__ import annotations
 import math
 import torch
 from typing import TYPE_CHECKING
+from isaaclab.assets.rigid_object.rigid_object_cfg import RigidObjectCfg
 import isaaclab.utils.math as math_utils
 from isaaclab.managers import SceneEntityCfg
 import random
 import yaml
 from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerBase
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import reset_joints_by_degree
-
+from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaacsim.core.utils import prims as prim_utils
 from isaacsim.core.prims.impl.xform_prim import XFormPrim
 import numpy as np
 from isaaclab.envs.mdp.events import reset_root_state_uniform
 from isaaclab.assets import Articulation
+from pxr import UsdShade, UsdGeom, Sdf, Gf
+import isaaclab.sim as sim_utils
+
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 def add_lists(a, b):
     return (np.array(a) + np.array(b)).tolist()
+
+
 
 def reset_env_from_scheduler(
         env: ManagerBasedEnv,
@@ -69,6 +75,19 @@ def reset_env_from_scheduler(
     )
         else:
             print("[WARNING] Missing key in case definition: 'robot_joint_offsets' or 'gripper_offset'. FALLING BACK TO DEFAULT")
+
+        if "object_rgb" in case:
+            object_rgb = case["object_rgb"]
+            force_color_material_on_all_meshes(env, env_id, object_asset_cfg, rgb=object_rgb)
+        else:
+            print("[WARNING] Missing key in case definition: 'object_rgb'. FALLING BACK TO DEFAULT")
+
+        if "target_rgb" in case:
+            target_rgb = case["target_rgb"]
+            force_color_material_on_all_meshes(env, env_id, target_asset_cfg, rgb=target_rgb)
+        else:
+            print("[WARNING] Missing key in case definition: 'target_rgb'. FALLING BACK TO DEFAULT")
+
         obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
         tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
         object_pose = add_lists(obj_pos, table_offset_pos) + add_lists(obj_rpy, table_offset_rpy)
@@ -140,7 +159,6 @@ def set_rigid_object_poses(
             torch.zeros(1, 6, device=env.device), env_ids=torch.tensor([env_id], device=env.device)
         )
 
-
 def sample_object_poses(
     num_objects: int,
     min_separation: float = 0.0,
@@ -168,3 +186,63 @@ def sample_object_poses(
                 break
 
     return pose_list
+
+def get_asset_root_prim_path(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg, env_id: int) -> str:
+    """Return the concrete prim path for this asset in this env."""
+    asset = env.scene[asset_cfg.name]
+    # Isaac Lab assets commonly expose per-env prim paths as a list
+    if hasattr(asset, "prim_paths"):
+        return asset.prim_paths[env_id]
+    # Fallback: some expose a single expr or list
+    if hasattr(asset, "cfg") and hasattr(asset.cfg, "prim_path"):
+        p = asset.cfg.prim_path
+        if isinstance(p, (list, tuple)):
+            return p[env_id]
+        # Replace common wildcard (env_.*) with concrete env id
+        return p.replace("env_.*", f"env_{env_id}").replace("env_*", f"env_{env_id}")
+    raise RuntimeError(f"Cannot resolve prim path for asset '{asset_cfg.name}'")
+
+def ensure_vec3(rgb_like):
+    return (float(rgb_like[0]), float(rgb_like[1]), float(rgb_like[2]))
+
+def define_preview_material(stage, mat_path, rgb):
+    shader_path = f"{mat_path}/Shader"
+    mat    = UsdShade.Material.Define(stage, mat_path)
+    shader = UsdShade.Shader.Define(stage, shader_path)
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    shader.CreateInput("metallic",     Sdf.ValueTypeNames.Float).Set(0.2)
+    shader_out = shader.CreateOutput("surface", Sdf.ValueTypeNames.Token)
+    mat_out    = mat.CreateSurfaceOutput()
+    mat_out.ConnectToSource(shader_out)
+    return mat
+
+def iter_meshes_under(root_prim):
+    # DFS over descendants; yield Mesh prims
+    stack = list(root_prim.GetChildren())
+    while stack:
+        p = stack.pop()
+        if p.IsA(UsdGeom.Mesh):
+            yield p
+        stack.extend(p.GetChildren())
+
+def force_color_material_on_all_meshes(env, env_id: int, asset_cfg, rgb,
+                                        unbind_existing: bool = True):
+
+    stage = env.scene.stage  
+    root_path = get_asset_root_prim_path(env, asset_cfg, env_id)
+    root_prim = stage.GetPrimAtPath(root_path)
+
+    mat_name = f"{root_path}/geometry/material"
+    mat = define_preview_material(stage, mat_name, ensure_vec3(rgb))
+
+    for mesh in iter_meshes_under(root_prim):
+        mb = UsdShade.MaterialBindingAPI(mesh)
+
+        if unbind_existing:
+                mb.UnbindAllBindings()
+
+        mb.Bind(mat, bindingStrength=UsdShade.Tokens.strongerThanDescendants)
+        gprim = UsdGeom.Gprim(mesh)
+        gprim.GetDisplayColorAttr().Set([Gf.Vec3f(*rgb)])
+        gprim.GetDisplayOpacityAttr().Set([1.0])

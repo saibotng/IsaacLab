@@ -24,6 +24,8 @@ from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, 
 from isaaclab.sensors import CameraCfg
 import isaaclab.sim as sim_utils
 
+CUBE_BASE_SCALE = 0.04
+
 @configclass
 class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
     def __post_init__(self):
@@ -105,13 +107,12 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
         self.actions.gripper_action = mdp.JointPositionActionCfg(
             asset_name="robot", joint_names=GRIPPER_JOINTS, scale=1.0, use_default_offset=False
         )
-    
 
         # Set Cube as object
         self.scene.object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object",
             spawn=sim_utils.CuboidCfg(
-                size=(0.04, 0.04, 0.04),
+                size=(CUBE_BASE_SCALE, CUBE_BASE_SCALE, CUBE_BASE_SCALE),
                 rigid_props=RigidBodyPropertiesCfg(
                     solver_position_iteration_count=16,
                     solver_velocity_iteration_count=1,
