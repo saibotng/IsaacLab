@@ -58,16 +58,16 @@ UR5_CFG = ArticulationCfg(
         "ur5_shoulder": ImplicitActuatorCfg(
             joint_names_expr=["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint"],
             effort_limit=87.0,
-            velocity_limit=0.4,
-            velocity_limit_sim=0.4,
+            velocity_limit=0.5,
+            velocity_limit_sim=0.5,
             stiffness=400.0,
             damping=40.0,
         ),
         "ur5_wrist": ImplicitActuatorCfg(
             joint_names_expr=["wrist_2_joint", "wrist_3_joint"],
             effort_limit=87.0,
-            velocity_limit=4.0,
-            velocity_limit_sim=4.0,
+            velocity_limit=3.0,
+            velocity_limit_sim=3.0,
             stiffness=400.0,
             damping=40.0,
         ),
@@ -75,7 +75,7 @@ UR5_CFG = ArticulationCfg(
             joint_names_expr=GRIPPER_JOINTS,
             effort_limit_sim=200.0,
             velocity_limit_sim=0.2,
-            stiffness=1500.0,                 # Increased from 2e3 - stronger position hold
+            stiffness=1500.0,                
             damping=200.0,   
         ),
     },
@@ -84,9 +84,9 @@ UR5_CFG = ArticulationCfg(
 
 UR5_RECORD_CFG = UR5_CFG.copy()
 UR5_RECORD_CFG.spawn.rigid_props.disable_gravity = True
-UR5_RECORD_CFG.actuators["ur5_shoulder"].stiffness = 150.0
+UR5_RECORD_CFG.actuators["ur5_shoulder"].stiffness = 100.0
 UR5_RECORD_CFG.actuators["ur5_shoulder"].damping = 80.0
-UR5_RECORD_CFG.actuators["ur5_wrist"].stiffness = 150.0
+UR5_RECORD_CFG.actuators["ur5_wrist"].stiffness = 100.0
 UR5_RECORD_CFG.actuators["ur5_wrist"].damping = 80.0
 
 UR5_INFERENCE_CFG = UR5_CFG.copy()

@@ -276,7 +276,7 @@ class PickAndPlaceSm:
     5. LIFT_OBJECT: The robot lifts the object to the desired pose. This is the final state.
     """
 
-    def __init__(self, dt: float, num_envs: int, device: torch.device | str = "cpu", position_threshold=0.01):
+    def __init__(self, dt: float, num_envs: int, position_threshold: float, device: torch.device | str = "cpu", ):
         """Initialize the state machine.
 
         Args:
@@ -409,7 +409,7 @@ def main():
 
     # create state machine
     pick_sm = PickAndPlaceSm(
-        env_cfg.sim.dt * env_cfg.decimation, num_envs, device, position_threshold=0.06
+        env_cfg.sim.dt * env_cfg.decimation, num_envs, position_threshold=0.07, device=device
     )
     done_counter = 0
     success_counter = 0
