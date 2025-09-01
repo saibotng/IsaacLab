@@ -40,14 +40,14 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             width=512,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=40.0,
+                focal_length=35.0,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
                 pos=(0.0, -0.12, 0.035),
-                rot=(0.95, -0.3, 0.0, 0.0),
+                rot=(0.961, -0.275, 0.0, 0.0),
             ),
         )
 
