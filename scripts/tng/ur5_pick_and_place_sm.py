@@ -428,7 +428,11 @@ def main():
                 target_pose = obs["rigid_objects"]["target_pose"]
 
                 if scheduler:
-                    travel_height = torch.tensor(scheduler.get_travel_heights_for_envs(torch.arange(num_envs, device=device)), device=device)
+                    try:
+                        travel_height = torch.tensor(scheduler.get_travel_heights_for_envs(torch.arange(num_envs, device=device)), device=device)#
+                    except KeyError:
+                        travel_height = torch.full((num_envs,), PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT, device=device)
+                        print("WARNING: 'travel_height' not found in case, using default.")
 
                 else:
                     travel_height = torch.full((num_envs,), PickAndPlaceSm.DEFAULT_TRAVEL_HEIGHT, device=device)
