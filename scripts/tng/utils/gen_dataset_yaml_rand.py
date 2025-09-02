@@ -108,7 +108,7 @@ def dist_xy(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     dy = a[1] - b[1]
     return math.hypot(dx, dy)
 
-def generate_random_episodes(dim: float, n: int, threshold: float, max_trials_per_episode: int = 10000) -> List[Tuple[Tuple[float,float], Tuple[float,float]]]:
+def generate_random_episodes(dim: float, n: int, fixed_target: bool, threshold: float, max_trials_per_episode: int = 10000) -> List[Tuple[Tuple[float,float], Tuple[float,float]]]:
     """
     Rejection-sample n episodes with object and target in [-dim, dim]^2 and
     distance(object, target) >= threshold. Raises RuntimeError if it can't
@@ -127,7 +127,7 @@ def generate_random_episodes(dim: float, n: int, threshold: float, max_trials_pe
         ok = False
         for _trial in range(max_trials_per_episode):
             o = sample_point(dim)
-            t = sample_point(dim)
+            t = sample_point(dim) if not fixed_target else (0.0, 0.0)
             if dist_xy(o, t) >= threshold:
                 episodes.append((o, t))
                 ok = True
@@ -142,7 +142,7 @@ def generate_random_episodes(dim: float, n: int, threshold: float, max_trials_pe
 
 # ---------- Build YAML ----------
 
-def build_cases(dim: float, calib_g: int, num_random: int, threshold: float, seed: int | None) -> List[Case]:
+def build_cases(dim: float, calib_g: int, num_random: int, fixed_target: bool, threshold: float, seed: int | None) -> List[Case]:
     if seed is not None:
         random.seed(seed)
 
@@ -154,7 +154,7 @@ def build_cases(dim: float, calib_g: int, num_random: int, threshold: float, see
         test_cases.append(Case(
             id="",
             object=make_pose(ox, oy),
-            target=make_pose(tx, ty),
+            target=make_pose(tx, ty) if not fixed_target else make_pose(0, 0),
             travel_height=TRAVEL_HEIGHT,
             prompt=PROMPT_TEXT
         ))
@@ -166,13 +166,13 @@ def build_cases(dim: float, calib_g: int, num_random: int, threshold: float, see
         test_cases.append(Case(
             id="",
             object=make_pose(ox, oy),
-            target=make_pose(tx, ty),
+            target=make_pose(tx, ty) if not fixed_target else make_pose(0, 0),
             travel_height=TRAVEL_HEIGHT,
             prompt=PROMPT_TEXT
         ))
 
     # 3) Random episodes with distance threshold
-    random_eps = generate_random_episodes(dim, num_random, threshold)
+    random_eps = generate_random_episodes(dim, num_random, fixed_target, threshold)
     for (o, t) in random_eps:
         test_cases.append(Case(
             id="",
@@ -191,7 +191,7 @@ def build_cases(dim: float, calib_g: int, num_random: int, threshold: float, see
     return test_cases
 
 
-def build_yaml(name: str, dim: float, calib_g: int, num_random: int, threshold: float, seed: int | None):
+def build_yaml(name: str, dim: float, calib_g: int, num_random: int, fixed_target: bool, threshold: float, seed: int | None):
     doc = {
         "name": name,
         "idle_case": {
@@ -204,7 +204,7 @@ def build_yaml(name: str, dim: float, calib_g: int, num_random: int, threshold: 
         "test_cases": []
     }
 
-    cases = build_cases(dim, calib_g, num_random, threshold, seed)
+    cases = build_cases(dim, calib_g, num_random, fixed_target, threshold, seed)
     for c in cases:
         doc["test_cases"].append({
             "id": c.id,
@@ -223,6 +223,7 @@ def main():
     ap.add_argument("--calibration-granularity", type=int, default=2, help="g points per edge (excluding corners).")
     ap.add_argument("--num-random-episodes", type=int, required=True, help="Number of additional random episodes to generate.")
     ap.add_argument("--threshold", type=float, required=True, help="Minimum distance between object and target (meters).")
+    ap.add_argument("--fixed-target", action="store_true", help="If set, target is always at the center (0,0).")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility.")
     ap.add_argument("--out_dir", type=str, required=True, help="Output YAML filepath.")
     args = ap.parse_args()
@@ -230,7 +231,7 @@ def main():
     if args.num_random_episodes < 0:
         raise ValueError("--num-random-episodes must be >= 0")
 
-    doc = build_yaml(args.name, args.dim, args.calibration_granularity, args.num_random_episodes, args.threshold, args.seed)
+    doc = build_yaml(args.name, args.dim, args.calibration_granularity, args.num_random_episodes, args.fixed_target, args.threshold, args.seed)
 
     with open(args.out_dir + args.name + ".yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False)

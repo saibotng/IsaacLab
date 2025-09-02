@@ -19,9 +19,9 @@ Optional:
 
 import argparse
 import os
+import math
 import yaml
 import matplotlib.pyplot as plt
-
 
 def infer_dim(points, pad=0.05):
     """Infer square bounds from points and add a padding margin."""
@@ -96,11 +96,103 @@ def line_plot(lines, title, outfile, xlim=None, ylim=None):
     plt.savefig(outfile, dpi=150)
     plt.close()
 
+def xy_hist_figure(points, title_prefix, outfile, bins=60):
+    """Two stacked histograms: X distribution (top), Y distribution (bottom)."""
+    if not points:
+        print(f"[WARN] No points found for {title_prefix}; skipping plot.")
+        return
+
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+
+    # symmetric limits so X/Y are comparable
+    max_abs = max(
+        max(abs(min(xs)), abs(max(xs))),
+        max(abs(min(ys)), abs(max(ys)))
+    )
+    xr = (-max_abs, max_abs)
+    yr = (-max_abs, max_abs)
+
+    fig = plt.figure(figsize=(7, 6), dpi=150)
+
+    ax1 = plt.subplot(2, 1, 1)
+    ax1.hist(xs, bins=bins, range=xr)
+    ax1.set_title(f"{title_prefix} — X distribution")
+    ax1.set_xlabel("x [m]")
+    ax1.set_ylabel("count")
+    ax1.grid(True, linewidth=0.3, alpha=0.4)
+
+    ax2 = plt.subplot(2, 1, 2)
+    ax2.hist(ys, bins=bins, range=yr)
+    ax2.set_title(f"{title_prefix} — Y distribution")
+    ax2.set_xlabel("y [m]")
+    ax2.set_ylabel("count")
+    ax2.grid(True, linewidth=0.3, alpha=0.4)
+
+    plt.tight_layout()
+    plt.savefig(outfile, dpi=150)
+    plt.close(fig)
+    print(f"[OK] Saved {outfile}")
+
+
+def polar_direction_hist(obj_pts, tgt_pts, outfile, angle_bins=72, density=True):
+    """
+    Polar histogram of travel direction (object -> target), 0°..360°.
+    Bars are weighted by travel distance. If density=True, the histogram shows
+    proportion of total travel distance per bin (area-normalized).
+    """
+    if not obj_pts or not tgt_pts:
+        print("[WARN] Missing positions for polar histogram; skipping.")
+        return
+
+    angles_rad, distances = compute_angles_and_weights(obj_pts, tgt_pts)
+    if not angles_rad:
+        print("[WARN] No valid (angle, distance) samples; skipping polar histogram.")
+        return
+
+    fig = plt.figure(figsize=(6, 6), dpi=150)
+    ax = plt.subplot(111, polar=True)
+
+    # range=(-pi, pi) lines up 0 at the positive x-axis; we'll set ticks accordingly
+    ax.hist(angles_rad, bins=angle_bins, range=(-math.pi, math.pi),
+            weights=distances, density=density)
+
+    ax.set_title("Weighted travel direction distribution", va="bottom")
+    ax.set_theta_zero_location("E")  # 0° at +x (east)
+    ax.set_theta_direction(1)        # CCW positive
+    ax.set_xticks([0, math.pi/2, math.pi, 3*math.pi/2])
+    ax.set_xticklabels(["0°", "90°", "180°", "270°"])
+    ax.grid(True, linewidth=0.3, alpha=0.4)
+
+    plt.tight_layout()
+    plt.savefig(outfile, dpi=150)
+    plt.close(fig)
+    print(f"[OK] Saved {outfile}")
+
+def compute_angles_and_weights(obj_pts, tgt_pts):
+    """Return angles (radians, in [-pi, pi]) and weights (distances)."""
+    angles_rad = []
+    distances = []
+    for (ox, oy), (tx, ty) in zip(obj_pts, tgt_pts):
+        dx = tx - ox
+        dy = ty - oy
+        dist = math.hypot(dx, dy)
+        if dist <= 0.0:
+            # zero-distance contributes no weight; skip
+            continue
+        ang = math.atan2(dy, dx)  # radians in [-pi, pi]
+        angles_rad.append(ang)
+        distances.append(dist)
+    return angles_rad, distances
+
 
 def main():
-    ap = argparse.ArgumentParser(description="Plot object/target distributions and connections from YAML.")
+    ap = argparse.ArgumentParser(description="Plot object/target distributions, connections, and direction histograms from YAML.")
     ap.add_argument("--in", dest="infile", required=True, help="Input YAML filepath.")
     ap.add_argument("--pad", type=float, default=0.05, help="Relative padding for inferred square bounds.")
+    ap.add_argument("--bins", type=int, default=60, help="Histogram bins for X/Y distributions.")
+    ap.add_argument("--angle-bins", type=int, default=72, help="Bins for direction histogram (72 -> 5° bins).")
+    ap.add_argument("--density", action="store_true", help="Normalize polar histogram to proportion of total distance.")
     ap.add_argument("--show", action="store_true", help="Also show plots interactively.")
     args = ap.parse_args()
 
@@ -110,6 +202,7 @@ def main():
 
     base = os.path.splitext(os.path.basename(args.infile))[0]
     out_dir = os.path.dirname(os.path.abspath(args.infile)) or "."
+
     out1 = os.path.join(out_dir, f"{base}_objects.png")
     out2 = os.path.join(out_dir, f"{base}_targets.png")
     out3 = os.path.join(out_dir, f"{base}_connections.png")
@@ -118,25 +211,70 @@ def main():
     scatter_plot(tgt_pts, "Target position distribution", out2, xlim, ylim)
     line_plot(lines, "Object→Target connections (per case)", out3, xlim, ylim)
 
+    out4 = os.path.join(out_dir, f"{base}_object_xy_hist.png")
+    out5 = os.path.join(out_dir, f"{base}_target_xy_hist.png")
+    out6 = os.path.join(out_dir, f"{base}_direction_weighted_polar{'_density' if args.density else ''}.png")
+
+
+    xy_hist_figure(obj_pts, "Object positions", out4, bins=args.bins)
+    xy_hist_figure(tgt_pts, "Target positions", out5, bins=args.bins)
+    polar_direction_hist(obj_pts, tgt_pts, out6, angle_bins=args.angle_bins, density=args.density)
+
+
     print("Saved plots:")
     print("  ", out1)
     print("  ", out2)
     print("  ", out3)
+    print("  ", out4)
+    print("  ", out5)
+    print("  ", out6)
 
     if args.show:
-        # If user requests showing, re-render quickly to interactive windows.
-        import matplotlib.pyplot as plt
-        # 1
+        # Quick interactive re-display of the six figures
+        # 1: object scatter
         xs = [p[0] for p in obj_pts]; ys = [p[1] for p in obj_pts]
         plt.figure(); plt.scatter(xs, ys, s=12); plt.gca().set_aspect("equal"); plt.xlim(*xlim); plt.ylim(*ylim); plt.title("Object positions"); plt.grid(True, linewidth=0.3, alpha=0.4)
-        # 2
+        # 2: target scatter
         xs = [p[0] for p in tgt_pts]; ys = [p[1] for p in tgt_pts]
         plt.figure(); plt.scatter(xs, ys, s=12); plt.gca().set_aspect("equal"); plt.xlim(*xlim); plt.ylim(*ylim); plt.title("Target positions"); plt.grid(True, linewidth=0.3, alpha=0.4)
-        # 3
+        # 3: connections
         plt.figure()
         for (o, t) in lines:
             plt.plot([o[0], t[0]], [o[1], t[1]], linewidth=0.7)
         plt.gca().set_aspect("equal"); plt.xlim(*xlim); plt.ylim(*ylim); plt.title("Object→Target connections"); plt.grid(True, linewidth=0.3, alpha=0.4)
+        # 4: object XY hist
+        xs = [p[0] for p in obj_pts]; ys = [p[1] for p in obj_pts]
+        max_abs = max(max(abs(min(xs)), abs(max(xs))), max(abs(min(ys)), abs(max(ys)))) if obj_pts else 1.0
+        plt.figure(figsize=(7,6))
+        plt.subplot(2,1,1); plt.hist(xs, bins=args.bins, range=(-max_abs, max_abs)); plt.title("Object — X"); plt.grid(True, linewidth=0.3, alpha=0.4)
+        plt.subplot(2,1,2); plt.hist(ys, bins=args.bins, range=(-max_abs, max_abs)); plt.title("Object — Y"); plt.grid(True, linewidth=0.3, alpha=0.4)
+        plt.tight_layout()
+        # 5: target XY hist
+        xs = [p[0] for p in tgt_pts]; ys = [p[1] for p in tgt_pts]
+        max_abs = max(max(abs(min(xs)), abs(max(xs))), max(abs(min(ys)), abs(max(ys)))) if tgt_pts else 1.0
+        plt.figure(figsize=(7,6))
+        plt.subplot(2,1,1); plt.hist(xs, bins=args.bins, range=(-max_abs, max_abs)); plt.title("Target — X"); plt.grid(True, linewidth=0.3, alpha=0.4)
+        plt.subplot(2,1,2); plt.hist(ys, bins=args.bins, range=(-max_abs, max_abs)); plt.title("Target — Y"); plt.grid(True, linewidth=0.3, alpha=0.4)
+        plt.tight_layout()
+        # 6: polar weighted directions
+        angles = []
+        weights = []
+        for (ox, oy), (tx, ty) in zip(obj_pts, tgt_pts):
+            dx, dy = tx - ox, ty - oy
+            dist = math.hypot(dx, dy)
+            if dist <= 0: 
+                continue
+            angles.append(math.atan2(dy, dx))
+            weights.append(dist)
+        plt.figure(figsize=(6,6))
+        ax = plt.subplot(111, polar=True)
+        ax.hist(angles, bins=args.angle_bins, range=(-math.pi, math.pi), weights=weights, density=args.density)
+        ax.set_title("Weighted travel direction distribution", va="bottom")
+        ax.set_theta_zero_location("E"); ax.set_theta_direction(1)
+        ax.set_xticks([0, math.pi/2, math.pi, 3*math.pi/2]); ax.set_xticklabels(["0°","90°","180°","270°"])
+        ax.grid(True, linewidth=0.3, alpha=0.4)
+        plt.tight_layout()
+
         plt.show()
 
 
