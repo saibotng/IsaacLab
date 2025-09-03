@@ -78,22 +78,30 @@ class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
     
 
     def get_new_case_for_env(self, env_id, env):
-        success_mask = env.unwrapped.termination_manager.get_term("success")
-        if success_mask[env_id]:
-            case_idx = self.cases_being_processed[env_id]
-            if case_idx is not None:
-                self.results_dict["cases"][case_idx]["success"] = True   
+        if env.termination_manager.dones.any():
+            self.update_completion_time(env.obs_buf["env_logging"]["time_alive"])
+            success_mask = env.unwrapped.termination_manager.get_term("success")
+            if success_mask[env_id]:
+                case_idx = self.cases_being_processed[env_id]
+                if case_idx is not None:
+                    self.results_dict["cases"][case_idx]["success"] = True  
         return super().get_new_case_for_env(env_id, env)
 
 
-    def update_metrics(self, obs):
-        metrics_observations = {m: obs['subtasks'][m].nonzero(as_tuple=False).squeeze(-1).tolist() for m in self.required_metrics}
+    def update_metrics(self, subtasks_obs):
+        metrics_observations = {m: subtasks_obs[m].nonzero(as_tuple=False).squeeze(-1).tolist() for m in self.required_metrics}
         for metric, envs in metrics_observations.items():
             print(f"Envs satisfying {metric}: {envs}")   
             for env_id in envs:
                 case_idx = self.cases_being_processed[env_id]
                 if case_idx is not None:
                     self.results_dict["cases"][case_idx]["metrics"][metric] = True 
+
+    def update_completion_time(self, time_obs: torch.Tensor):
+        for env_id, case_idx in enumerate(self.cases_being_processed):
+            if case_idx is not None:
+                self.results_dict["cases"][case_idx]["completion_time"] = float(time_obs[env_id].item())
+
 
     def _gen_empty_results_dict(self) -> dict:
         result_dict = {
@@ -105,6 +113,7 @@ class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
         }
         for case in result_dict["cases"]:
             case["success"] = False
+            case["completion_time"] = 0.0
             case["metrics"] = {}
             for metric in self.required_metrics:
                 case["metrics"][metric] = False
@@ -118,15 +127,18 @@ class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
         """Finalize the results dictionary by computing the overall success rate."""
         total_cases = self.results_dict['total_cases']
         total_successes = 0
+        sum_successfull_completion_times = 0.0
         metric_successes = {m: 0 for m in self.required_metrics}
         for case in self.results_dict["cases"]:
             if case["success"]:
                 total_successes += 1
+                sum_successfull_completion_times += case["completion_time"]
             for metric, achieved in case["metrics"].items():
                 if achieved:
                     metric_successes[metric] += 1
 
         self.results_dict["success_rate"] = total_successes / total_cases
+        self.results_dict["average_successful_completion_time"] = sum_successfull_completion_times / total_successes if total_successes > 0 else 0.0
         self.results_dict["metric_successes_rates"] = {k: v / total_cases for k, v in metric_successes.items()}
         ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
         output_path = os.path.join("tng_benchmark_results", self.name, f"results_{ts}.json")
@@ -163,6 +175,7 @@ def print_results_summary(results_dict: dict):
     # ---- pull precomputed fields ------------------------------------------
     total_cases = results_dict.get("total_cases", 0)
     overall_rate = results_dict.get("success_rate", 0.0)
+    average_successful_completion_time = results_dict.get("average_successful_completion_time", 0.0)
     metric_rates = results_dict.get("metric_successes_rates", {}) or {}
     metrics = results_dict.get("metrics", []) or []
     cases = results_dict.get("cases", []) or []
@@ -177,6 +190,7 @@ def print_results_summary(results_dict: dict):
     print(subline)
     print(f"Total cases       : {total_cases}")
     print(f"Overall success   : {pct(overall_rate)}")
+    print(f"Average successful completion time: {average_successful_completion_time:.2f}s")
 
     # ---- per-metric success rates (uses precomputed metric rates) ----------
     print("\nMetric success rates")
@@ -199,7 +213,7 @@ def print_results_summary(results_dict: dict):
         prompt_width = max(20, 78 - (3 + 2 + 8 + 2 + metric_cols_width + 2))  # keep line ~78 chars
 
         # Header row
-        print(f"{'#':>3}  {'Succ':<4}  {metric_header:<{metric_cols_width}}  Prompt")
+        print(f"{'#':>3}  {'Succ':<4}  {metric_header:<{metric_cols_width}}  Time  Prompt")
         print(subline)
 
         # Print in the order provided (no sorting -> minimal work)
@@ -207,8 +221,9 @@ def print_results_summary(results_dict: dict):
             succ = bool(c.get("success", False))
             cm = c.get("metrics", {}) or {}
             metrics_row = " ".join(tick(cm.get(m, False)) for m in metrics)
+            completion_time = c.get("completion_time", 0.0)
             prompt = clip(c.get("prompt", ""), prompt_width)
-            print(f"{idx:>3}  {tick(succ):<4}  {metrics_row:<{metric_cols_width}}  {prompt}")
+            print(f"{idx:>3}  {tick(succ):<4}  {metrics_row:<{metric_cols_width}}  {completion_time:.2f}s  {prompt}")
 
     # ---- legend ------------------------------------------------------------
     print("\nLegend")
