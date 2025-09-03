@@ -14,7 +14,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Evaluate RFM on UR5 pick‑and‑place (joint control)")
 parser.add_argument("--chunk_size", type=int, default=16, help="Future horizon K that RFM outputs")
 parser.add_argument("--action_horizon", type=int, default=10, help="Action horizon for the RFM")
-parser.add_argument("--num_envs", type=int, default=3, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabric (USD I/O fallback)")
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> None:
 
                 if scheduler:
                     prompts = scheduler.get_prompts(env_ids)
-                    scheduler.update_metrics(obs)
+                    scheduler.update_metrics(obs['subtasks'])
                     idle_mask = scheduler.idle_mask.clone()
                 else:
                     prompts = [DEFAULT_PROMPT]*num_envs
