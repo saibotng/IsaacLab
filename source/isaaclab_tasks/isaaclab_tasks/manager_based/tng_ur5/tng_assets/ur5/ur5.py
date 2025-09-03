@@ -28,6 +28,7 @@ GRIPPER_JOINTS = [
 ]
 
 GRIPPING_CENTER_OFFSET = 0.18
+MAX_GRIPPER_DISPLACEMENT = 0.038
 
 UR5_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
@@ -51,7 +52,7 @@ UR5_CFG = ArticulationCfg(
             "wrist_1_joint": -1.712,
             "wrist_2_joint": -1.571,
             "wrist_3_joint": 0.0,
-            "hand_to_.*": 0.0
+            "hand_to_.*": 0.04
         },
     ),
     actuators={
@@ -74,8 +75,9 @@ UR5_CFG = ArticulationCfg(
         "ur5_hand": ImplicitActuatorCfg(
             joint_names_expr=GRIPPER_JOINTS,
             effort_limit_sim=200.0,
-            velocity_limit_sim=0.2,
-            stiffness=1500.0,                
+            velocity_limit=0.075,
+            velocity_limit_sim=0.075,
+            stiffness=2000.0,                
             damping=200.0,   
         ),
     },
@@ -91,9 +93,9 @@ UR5_RECORD_CFG.actuators["ur5_wrist"].damping = 80.0
 
 UR5_INFERENCE_CFG = UR5_CFG.copy()
 UR5_INFERENCE_CFG.spawn.rigid_props.disable_gravity = True
-UR5_INFERENCE_CFG.actuators["ur5_shoulder"].stiffness = 1500.0
+UR5_INFERENCE_CFG.actuators["ur5_shoulder"].stiffness = 2500.0
 UR5_INFERENCE_CFG.actuators["ur5_shoulder"].damping = 80.0
-UR5_INFERENCE_CFG.actuators["ur5_wrist"].stiffness = 1500.0
+UR5_INFERENCE_CFG.actuators["ur5_wrist"].stiffness = 2500.0
 UR5_INFERENCE_CFG.actuators["ur5_wrist"].damping = 80.0
 UR5_INFERENCE_CFG.actuators["ur5_hand"].stiffness = 3000.0
 

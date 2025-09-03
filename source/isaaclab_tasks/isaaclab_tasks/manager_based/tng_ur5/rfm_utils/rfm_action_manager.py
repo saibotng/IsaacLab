@@ -8,7 +8,7 @@ SNAP_GRIPPER_ACTIONS = True
 GRIPPER_SNAP_THRESHOLD = 0.015
 ENFORCE_GRIPPER_DELTA = 0.0015
 ARM_TARGET_TOL = 0.003
-GRIPPER_TARGET_TOL = 0.01
+GRIPPER_TARGET_TOL = 0.0001
 
 
 def maybe_snap_gripper_actions(gripper_actions):
@@ -170,25 +170,22 @@ class RFMActionManager:
         stacked_err = torch.stack(list(self.err_deque), dim=0)
         err_span = stacked_err.max(dim=0).values - stacked_err.min(dim=0).values
 
-        #TODO: decide for one gripper reached option
-
         gripper_pos = obs['gripper_joint']['gripper_joint_pos'].squeeze(1)
 
         self.gripper_pos_deque.append(gripper_pos)
         stacked_gripper_pos = torch.stack(list(self.gripper_pos_deque), dim=0)
         gripper_pos_span = stacked_gripper_pos.max(dim=0).values - stacked_gripper_pos.min(dim=0).values
 
-        gripper_vel = obs['gripper_joint']['gripper_joint_vel'].squeeze()
-        gripper_reached_old = (gripper_vel.abs() < GRIPPER_TARGET_TOL).to(device=self.device)
-        gripper_reached = (gripper_pos_span < 0.0001).to(device=self.device)
+        gripper_static = (gripper_pos_span < GRIPPER_TARGET_TOL).to(device=self.device)
 
         self.action_idx_deque.append(self.ptr.clone())
         stacked_action_idx = torch.stack(list(self.action_idx_deque), dim=0)
         action_idx_span = stacked_action_idx.max(dim=0).values - stacked_action_idx.min(dim=0).values
 
         arm_reached = err_arm < ARM_TARGET_TOL
-        stuck = (err_span < 1e-5) & (action_idx_span == 0) #& (gripper_reached)
-        envs_to_update_targets = ((arm_reached & gripper_reached) | stuck)
+        can_advance = (arm_reached & gripper_static)
+        stuck = (err_span < 1e-4) & (action_idx_span == 0) & (gripper_static) & (~can_advance)
+        envs_to_update_targets = (can_advance | stuck)
 
         self.maybe_update_targets(envs_to_update_targets, obs)
         self.maybe_reset_buffer(done_mask)
@@ -212,6 +209,7 @@ class RFMActionManager:
                 "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.delta_robot_arm": arm_delta,
                 "state.delta_gripper": gripper_delta,
+                "state.tcp_pose": full_obs["end_effector"][env_idx].cpu().unsqueeze(0).numpy(),
                 "annotation.human.action.task_description": [prompt],
             }
             return gr00t_obs

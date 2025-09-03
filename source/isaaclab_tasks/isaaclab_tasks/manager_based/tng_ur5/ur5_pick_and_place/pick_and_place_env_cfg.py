@@ -252,10 +252,20 @@ class ObservationsCfg:
 
     @configclass
     class SubtaskObsCfg(ObsGroup):
-        object_reached_target = ObsTerm(func=mdp.object_reached_goal, params={"threshold": 0.05})
-        object_lifted = ObsTerm(func=mdp.root_height_above_reference, params={"threshold": 0.05, "reference_specific_offset": TABLE_HEIGHT})
+        object_reached_target = ObsTerm(func=mdp.object_reached_goal)
+        object_lifted = ObsTerm(func=mdp.root_height_above_reference, params={"threshold": 0.01, "reference_specific_offset": TABLE_HEIGHT, "offset_asset_cfg": SceneEntityCfg("target_object")})
         object_in_gripper_reach = ObsTerm(func=mdp.object_in_gripper_reach)
+        gripper_open_on_approach = ObsTerm(func=mdp.gripper_open_on_approach)
+        gripper_open_after_target_reached = ObsTerm(func=mdp.gripper_open_after_target_reached)
 
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = False
+
+
+    @configclass
+    class EnvLoggingObsCfg(ObsGroup):
+        time_alive = ObsTerm(func=mdp.current_time_s)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = False
@@ -267,6 +277,7 @@ class ObservationsCfg:
     end_effector: EndEffectorObsCfg = EndEffectorObsCfg()
     rigid_objects: RigidObjectsObsCfg = RigidObjectsObsCfg()
     subtasks: SubtaskObsCfg = SubtaskObsCfg()
+    env_logging: EnvLoggingObsCfg = EnvLoggingObsCfg()
 
 
 class ObservationRecorder(RecorderTerm):

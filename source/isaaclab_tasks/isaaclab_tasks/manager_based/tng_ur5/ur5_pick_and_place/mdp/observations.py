@@ -6,15 +6,15 @@
 from __future__ import annotations
 
 import torch
+import math
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import subtract_frame_transforms
 from isaaclab.sensors import FrameTransformer
-from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_JOINTS
+from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import ARM_JOINTS, GRIPPER_JOINTS, MAX_GRIPPER_DISPLACEMENT, GRIPPING_CENTER_OFFSET
 from isaaclab.assets import Articulation
-from isaacsim.core.prims.impl.xform_prim import XFormPrim
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 def object_reached_goal(
     env: ManagerBasedRLEnv,
-    threshold: float,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
@@ -30,12 +29,46 @@ def object_reached_goal(
     object: RigidObject = env.scene[object_cfg.name]
     target: RigidObject = env.scene[target_cfg.name]
     distance = torch.norm(target.data.root_pos_w[:, :3] - object.data.root_pos_w[:, :3], dim=1)
-    return distance < threshold
 
+    object_size = object.cfg.spawn.size
+    target_size = target.cfg.spawn.size
+    target_diag = math.sqrt(target_size[0]**2 + target_size[1]**2)
+    object_diag = math.sqrt(object_size[0]**2 + object_size[1]**2)
+    max_hor_dist = (target_diag - object_diag) / 2.0
+    max_vert_dist = (object_size[2] + target_size[2]) / 2.0
+    max_dist = math.sqrt(max_hor_dist**2 + max_vert_dist**2)
+
+    return distance < max_dist
+
+def gripper_opened(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    object: RigidObject = env.scene[object_cfg.name]
+    gripper_pos = gripper_joint_pos(env)
+    object_width = object.cfg.spawn.size[0]
+
+    return gripper_pos[:, 0] < MAX_GRIPPER_DISPLACEMENT - (object_width / 2.0)*1.1
+
+def gripper_open_on_approach(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    gripper_open = gripper_opened(env, object_cfg)
+    gripper_approaching = object_in_gripper_reach(env, object_cfg=object_cfg)
+    object_at_goal = object_reached_goal(env, object_cfg=object_cfg)
+    return gripper_open & gripper_approaching & (~object_at_goal)
+
+def gripper_open_after_target_reached(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    gripper_open = gripper_opened(env, object_cfg)
+    target_reached = object_reached_goal(env, object_cfg=object_cfg)
+    return gripper_open & target_reached
 
 def root_height_above_reference(
-    env: ManagerBasedRLEnv, threshold: float, reference_specific_offset: float, object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), reference_asset_cfg: SceneEntityCfg = SceneEntityCfg("table")
-) -> torch.Tensor:
+    env: ManagerBasedRLEnv, threshold: float = 0.01, reference_specific_offset: float = 0.0, object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), reference_asset_cfg: SceneEntityCfg = SceneEntityCfg("table"), offset_asset_cfg: SceneEntityCfg | None = None) -> torch.Tensor:
     """Terminate when the asset's root height is below the minimum height.
 
     Note:
@@ -44,11 +77,16 @@ def root_height_above_reference(
     # extract the used quantities (to enable type-hinting)
     object_asset: RigidObject = env.scene[object_asset_cfg.name]
     reference_asset: RigidObject = env.scene[reference_asset_cfg.name]
-    return object_asset.data.root_pos_w[:, 2] > reference_asset.data.root_pos_w[:, 2] + threshold + reference_specific_offset
+    object_height = object_asset.cfg.spawn.size[2]
+    limit = reference_asset.data.root_pos_w[:, 2] + reference_specific_offset + object_height/2.0 + threshold
+    if offset_asset_cfg is not None:
+        offset_asset: RigidObject = env.scene[offset_asset_cfg.name]
+        limit += offset_asset.cfg.spawn.size[2]
+    return object_asset.data.root_pos_w[:, 2] > limit
 
 def object_in_gripper_reach(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.24,
+    threshold: float = 0.04,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
@@ -57,12 +95,13 @@ def object_in_gripper_reach(
 
     object: RigidObject = env.scene[object_cfg.name]
     tcp: FrameTransformer = env.scene[ee_frame_cfg.name]
+    object_height = object.cfg.spawn.size[2]
 
     # distance of the gripper to the object: (num_envs,)
     distance = torch.norm(tcp.data.target_pos_w[:, 0, :3] - object.data.root_pos_w[:, :3], dim=1)
 
     # rewarded if the object is released above the threshold
-    return distance < threshold
+    return distance < GRIPPING_CENTER_OFFSET + (object_height/2.0) + threshold
 
 
 def object_position_in_robot_root_frame(

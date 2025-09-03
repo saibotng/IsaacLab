@@ -24,12 +24,11 @@ if TYPE_CHECKING:
 
 def object_reached_goal_and_last_state_reached(
     env: ManagerBasedRLEnv,
-    threshold: float = 0.05,
     target_cfg: SceneEntityCfg = SceneEntityCfg("target_object"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
 
-    object_at_goal = object_reached_goal(env, threshold, target_cfg, object_cfg)
+    object_at_goal = object_reached_goal(env, target_cfg=target_cfg, object_cfg=object_cfg)
     last_state_reached = env.extras["state"] == 9
     done = object_at_goal & last_state_reached
     if done.sum() > 0:
@@ -44,7 +43,7 @@ def object_reached_goal_and_released_by_gripper(
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
 
-    goal_reached = object_reached_goal(env=env, target_cfg=target_cfg, object_cfg=object_cfg, threshold=0.05)
+    goal_reached = object_reached_goal(env=env, target_cfg=target_cfg, object_cfg=object_cfg)
     object_out_of_reach = (~object_in_gripper_reach(env=env, object_cfg=object_cfg, ee_frame_cfg=ee_frame_cfg))
     done = goal_reached & object_out_of_reach
     if done.sum() > 0:
