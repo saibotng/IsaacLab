@@ -1,4 +1,3 @@
-from isaaclab.managers import SceneEntityCfg
 from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerDatagen, EnvConfigSchedulerBenchmark
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.mdp.events import reset_env_from_scheduler
 

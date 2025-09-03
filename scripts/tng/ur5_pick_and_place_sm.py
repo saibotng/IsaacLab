@@ -9,7 +9,7 @@ Script to run an environment with a pick and place state machine.
 The state machine is implemented in the kernel function `infer_state_machine`.
 It uses the `warp` library to run the state machine in parallel on the GPU.
 start with:
-python scripts/tng/ur5_pick_and_place_sm.py --headless --enable_cameras --blackwell --from_yaml tng_datasets/random_100.yaml
+python scripts/tng/ur5_pick_and_place_sm.py --headless --enable_cameras --blackwell --from_yaml tng_datasets/cal3_rand100_dim0-2_moving_target.yaml
 
 """
 
@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser(description="Pick and place state machine for p
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
 
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
