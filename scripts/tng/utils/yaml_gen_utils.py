@@ -23,7 +23,7 @@ class Pose:
     rpy: List[float]
 
 class CameraPose(Enum):
-    CAMERA_FRONT_POSE = Pose(pos=[1.4, 0.0, 0.75], rpy=[0.0, 55.0, 90.0])
+    CAMERA_FRONT_POSE = Pose(pos=[1.5, 0.0, 0.8], rpy=[0.0, 55.0, 90.0])
     CAMERA_SIDE_POSE = Pose(pos=[0.5, 0.9, 0.5], rpy=[-60, 0.0, 180.0])
     CAMERA_WRIST_POSE = Pose(pos=[0.0, -0.11, 0.035], rpy=[151.0, 0.0, 0.0]) 
 

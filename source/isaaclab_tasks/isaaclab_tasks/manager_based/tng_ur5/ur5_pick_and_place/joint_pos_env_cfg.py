@@ -68,7 +68,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 clipping_range=(0.1, 1.0e5)
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=(1.4, 0.0, 0.75),
+                pos=(1.5, 0.0, 0.8),
                 rot=(0.32651, -0.62721, -0.62721, 0.32651),
             ),
         )
@@ -127,7 +127,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
         self.scene.target_object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Target",
             spawn=sim_utils.CuboidCfg(
-                size=(0.1, 0.1, 0.01),
+                size=(0.07, 0.07, 0.01),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(),
                 mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
                 collision_props=sim_utils.CollisionPropertiesCfg(),

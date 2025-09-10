@@ -59,8 +59,8 @@ UR5_CFG = ArticulationCfg(
         "ur5_shoulder": ImplicitActuatorCfg(
             joint_names_expr=["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint"],
             effort_limit=87.0,
-            velocity_limit=0.55,
-            velocity_limit_sim=0.55,
+            velocity_limit=0.75,
+            velocity_limit_sim=0.75,
             stiffness=400.0,
             damping=40.0,
         ),
