@@ -38,6 +38,7 @@ import os
 import math
 import yaml
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def infer_dim(points, pad=0.05):
@@ -52,23 +53,46 @@ def infer_dim(points, pad=0.05):
 
 
 def load_positions(yaml_path):
-    """Load object and target positions from YAML file."""
+    """Load object and target positions and additional data from YAML file."""
     with open(yaml_path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     cases = doc.get("test_cases", [])
+    metadata = doc.get("metadata", {})
 
     obj_pts = []
     tgt_pts = []
     lines = []  # ( (ox,oy), (tx,ty) )
+    obj_yaws = []  # yaw angles in degrees
+    tgt_yaws = []  # yaw angles in degrees
+    table_heights = []  # table height offsets (z-coordinate)
+    joint_offsets = []  # robot joint offsets (6 values per case)
+    gripper_offsets = []  # gripper offsets
 
     for c in cases:
         ox, oy, _ = c["object"]["pos"]
         tx, ty, _ = c["target"]["pos"]
+        
+        # Extract yaw angles (convert from degrees to radians for math operations)
+        obj_yaw = c["object"]["rpy"][2] if "rpy" in c["object"] else 0.0
+        tgt_yaw = c["target"]["rpy"][2] if "rpy" in c["target"] else 0.0
+        
+        # Extract table height offset
+        table_height = c["table_offset"]["pos"][2] if "table_offset" in c and "pos" in c["table_offset"] else 0.0
+        
+        # Extract joint offsets
+        robot_joints = c.get("robot_joint_offsets", [0.0] * 6)
+        gripper_offset = c.get("gripper_offset", [0.0])[0] if c.get("gripper_offset") else 0.0
+        
         obj_pts.append((ox, oy))
         tgt_pts.append((tx, ty))
         lines.append(((ox, oy), (tx, ty)))
+        obj_yaws.append(obj_yaw)
+        tgt_yaws.append(tgt_yaw)
+        table_heights.append(table_height)
+        joint_offsets.append(robot_joints)
+        gripper_offsets.append(gripper_offset)
 
-    return obj_pts, tgt_pts, lines
+    return obj_pts, tgt_pts, lines, obj_yaws, tgt_yaws, table_heights, joint_offsets, gripper_offsets, metadata
 
 
 def extract_coordinates(obj_pts, tgt_pts):
@@ -175,6 +199,208 @@ def create_scatter_plot(points, title, ax=None, xlim=None, ylim=None):
         add_square_boundary(ax, xlim, ylim)
     
     ax.grid(True, linewidth=0.3, alpha=0.4)
+    
+    if standalone:
+        plt.tight_layout()
+        return fig
+    return ax
+
+
+def create_scatter_plot_enhanced(points, yaws, table_heights, title, ax=None, xlim=None, ylim=None):
+    """Create an enhanced scatter plot with yaw angles and table height color grading."""
+    import numpy as np
+    
+    if ax is None:
+        fig, ax = plt.subplots()
+        standalone = True
+    else:
+        standalone = False
+    
+    if points and yaws and table_heights:
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        
+        # Create color mapping based on table heights
+        heights = np.array(table_heights)
+        
+        # Create scatter plot with color grading
+        scatter = ax.scatter(xs, ys, c=heights, s=40, cmap='viridis', alpha=0.7)
+        
+        # Add colorbar for table heights
+        if standalone or True:  # Always add colorbar for now
+            plt.colorbar(scatter, ax=ax, label='Table Height Offset [m]')
+        
+        # Add yaw angle indicators as small arrows
+        arrow_length = (xlim[1] - xlim[0]) * 0.02 if xlim else 0.02  # 2% of plot range
+        for i, (x, y, yaw) in enumerate(zip(xs, ys, yaws)):
+            # Convert yaw from degrees to radians
+            # Add 90 degrees because yaw=0 means facing up (positive y), not right (positive x)
+            yaw_rad = math.radians(yaw + 90.0)
+            dx = arrow_length * math.cos(yaw_rad)
+            dy = arrow_length * math.sin(yaw_rad)
+            
+            ax.arrow(x, y, dx, dy, head_width=arrow_length*0.3, head_length=arrow_length*0.2, 
+                    fc='black', ec='black', alpha=0.8, linewidth=1)
+    
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(title)
+    ax.set_aspect("equal", adjustable="box")
+    
+    if xlim and ylim:
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        add_square_boundary(ax, xlim, ylim)
+    
+    ax.grid(True, linewidth=0.3, alpha=0.4)
+    
+    if standalone:
+        plt.tight_layout()
+        return fig
+    return ax
+
+
+def create_dataset_info_table(yaml_path, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata=None, ax=None):
+    """Create a table with dataset information, statistics, and metadata."""
+    import numpy as np
+    import os
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        standalone = True
+    else:
+        standalone = False
+    
+    # Calculate statistics
+    num_episodes = len(obj_pts)
+    
+    # Create table data - start with total episodes
+    table_data = [
+        ['Total Episodes', f'{num_episodes:,}'],
+    ]
+    
+    # Add metadata if available
+    if metadata:
+        # Add all metadata fields
+        for key, value in metadata.items():
+            # Format the key (replace underscores with spaces, capitalize)
+            formatted_key = key.replace('_', ' ').title()
+            
+            # Format the value based on type
+            if isinstance(value, bool):
+                formatted_value = 'Yes' if value else 'No'
+            elif isinstance(value, list):
+                # Handle lists (like required_metrics)
+                if len(value) <= 3:
+                    formatted_value = ', '.join(str(v) for v in value)
+                else:
+                    formatted_value = f"{', '.join(str(v) for v in value[:3])}, ... ({len(value)} total)"
+            elif value is None:
+                formatted_value = 'None'
+            else:
+                formatted_value = str(value)
+            
+            table_data.append([formatted_key, formatted_value])
+    
+    # Remove axis ticks and spines
+    ax.axis('off')
+    
+    # Create table
+    table = ax.table(cellText=table_data,
+                     cellLoc='left',
+                     loc='center',
+                     colWidths=[0.50, 0.40])  # Keep left column at 50%, reduce right column to 30%
+    
+    # Style the table
+    table.auto_set_font_size(False)
+    table.set_fontsize(7)  # Keep font size at 7
+    table.scale(1, 1.3)  # Reduced cell height for more compact table
+    
+    # Style data rows with alternating colors
+    for i in range(len(table_data)):
+        if i % 2 == 0:
+            table[(i, 0)].set_facecolor('#F5F5F5')
+            table[(i, 1)].set_facecolor('#F5F5F5')
+        else:
+            table[(i, 0)].set_facecolor('white')
+            table[(i, 1)].set_facecolor('white')
+        
+        # Make the first column (labels) bold
+        table[(i, 0)].set_text_props(weight='bold')
+    
+    if standalone:
+        plt.tight_layout()
+        return fig
+    return ax
+
+
+def create_joint_offset_plot(joint_offsets, gripper_offsets, ax=None):
+    """Create a bar plot showing mean and standard deviation of joint and gripper offsets."""
+    import numpy as np
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        standalone = True
+    else:
+        standalone = False
+    
+    if joint_offsets and gripper_offsets:
+        # Convert to numpy arrays for easier computation
+        joint_data = np.array(joint_offsets)  # Shape: (n_cases, 6)
+        gripper_data = np.array(gripper_offsets)  # Shape: (n_cases,)
+        
+        # Calculate means and standard deviations
+        joint_means = np.mean(joint_data, axis=0)
+        joint_stds = np.std(joint_data, axis=0)
+        gripper_mean = np.mean(gripper_data)
+        gripper_std = np.std(gripper_data)
+        
+        # Create labels with proper joint names
+        joint_names = [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint", 
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint",
+        ]
+        
+        # Create bar plot for joints only on primary axis
+        joint_x_pos = np.arange(len(joint_names))
+        joint_bars = ax.bar(joint_x_pos, joint_means, yerr=joint_stds, capsize=5, alpha=0.7, color='darkblue')
+        
+        ax.set_xlabel('Joint/Gripper')
+        ax.set_ylabel('Joint Offset [degrees]', color='darkblue')
+        ax.set_title('Robot Joint and Gripper Starting Position Offsets (Mean ± Std)')
+        ax.set_xticks(np.arange(len(joint_names) + 1))  # Add space for gripper
+        ax.set_xticklabels(joint_names + ['Gripper'], rotation=45)
+        ax.grid(True, linewidth=0.3, alpha=0.4)
+        ax.tick_params(axis='y', labelcolor='darkblue')
+        
+        # Add zero line for joints
+        ax.axhline(y=0, color='darkblue', linestyle='-', linewidth=0.5, alpha=0.7)
+        
+        # Create secondary y-axis for gripper
+        ax2 = ax.twinx()
+        gripper_x_pos = len(joint_names)  # Position at the end
+        gripper_bar = ax2.bar(gripper_x_pos, gripper_mean, yerr=gripper_std, capsize=5, alpha=0.7, color='darkorange')
+        
+        ax2.set_ylabel('Gripper Offset [mm]', color='darkorange')
+        ax2.tick_params(axis='y', labelcolor='darkorange')
+        
+        # Add zero line for gripper
+        ax2.axhline(y=0, color='darkorange', linestyle='-', linewidth=0.5, alpha=0.7)
+        
+        # Align the zero lines of both axes if possible
+        # Get the y-limits and try to make them symmetric around zero
+        joint_ylim = ax.get_ylim()
+        gripper_ylim = ax2.get_ylim()
+        
+        joint_max = max(abs(joint_ylim[0]), abs(joint_ylim[1]))
+        gripper_max = max(abs(gripper_ylim[0]), abs(gripper_ylim[1]))
+        
+        ax.set_ylim(-joint_max * 1.1, joint_max * 1.1)
+        ax2.set_ylim(-gripper_max * 1.1, gripper_max * 1.1)
     
     if standalone:
         plt.tight_layout()
@@ -416,8 +642,84 @@ def compute_angles_and_weights(obj_pts, tgt_pts):
     return angles_rad, distances
 
 
-def create_combined_plot(obj_pts, tgt_pts, lines, xlim, ylim, args, output_file):
-    """Create a combined figure with all 6 plots arranged in a grid."""
+def create_combined_plot(obj_pts, tgt_pts, lines, obj_yaws, tgt_yaws, table_heights, joint_offsets, gripper_offsets, xlim, ylim, args, output_file, metadata=None):
+    """Create a combined figure with all plots and dataset info table arranged in a grid."""
+    # Determine layout based on whether table is included
+    if hasattr(args, 'no_table') and args.no_table:
+        # Create a layout without the table (3x3 grid)
+        fig = plt.figure(figsize=(18, 12), dpi=150)
+        
+        # Subplot 1: Enhanced object positions scatter with yaw and table height
+        ax1 = plt.subplot(3, 3, 1)
+        create_scatter_plot_enhanced(obj_pts, obj_yaws, table_heights, "Object positions (with yaw & table height)", ax1, xlim, ylim)
+        
+        # Subplot 2: Enhanced target positions scatter with yaw and table height
+        ax2 = plt.subplot(3, 3, 2)
+        create_scatter_plot_enhanced(tgt_pts, tgt_yaws, table_heights, "Target positions (with yaw & table height)", ax2, xlim, ylim)
+        
+        # Subplot 3: Connections
+        ax3 = plt.subplot(3, 3, 3)
+        create_line_plot(lines, "Object→Target connections", ax3, xlim, ylim)
+        
+        # Subplot 4: Combined X/Y distribution for both objects and targets
+        ax4 = plt.subplot(3, 3, 4)
+        create_coordinate_histogram(obj_pts, tgt_pts, args, ax4)
+        
+        # Subplot 5: Travel distance distribution
+        ax5 = plt.subplot(3, 3, 5)
+        create_distance_histogram(obj_pts, tgt_pts, args, ax5)
+        
+        # Subplot 6: Unweighted direction histogram (polar)
+        ax6 = plt.subplot(3, 3, 6, polar=True)
+        create_direction_plot(obj_pts, tgt_pts, args, ax6)
+        
+        # Subplot 7-8: Joint and gripper offset analysis (spans columns 7-8)
+        ax7 = plt.subplot(3, 3, (7, 8))
+        create_joint_offset_plot(joint_offsets, gripper_offsets, ax7)
+    else:
+        # Create a layout with the table (4x3 grid)
+        fig = plt.figure(figsize=(18, 16), dpi=150)
+        
+        # Subplot 1: Dataset information table (moved to first position)
+        ax1 = plt.subplot(4, 3, 1)
+        create_dataset_info_table(args.infile, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata, ax1)
+        
+        # Subplot 2: Enhanced object positions scatter with yaw and table height
+        ax2 = plt.subplot(4, 3, 2)
+        create_scatter_plot_enhanced(obj_pts, obj_yaws, table_heights, "Object positions (with yaw & table height)", ax2, xlim, ylim)
+        
+        # Subplot 3: Enhanced target positions scatter with yaw and table height
+        ax3 = plt.subplot(4, 3, 3)
+        create_scatter_plot_enhanced(tgt_pts, tgt_yaws, table_heights, "Target positions (with yaw & table height)", ax3, xlim, ylim)
+        
+        # Subplot 4: Connections
+        ax4 = plt.subplot(4, 3, 4)
+        create_line_plot(lines, "Object→Target connections", ax4, xlim, ylim)
+        
+        # Subplot 5: Combined X/Y distribution for both objects and targets
+        ax5 = plt.subplot(4, 3, 5)
+        create_coordinate_histogram(obj_pts, tgt_pts, args, ax5)
+        
+        # Subplot 6: Travel distance distribution
+        ax6 = plt.subplot(4, 3, 6)
+        create_distance_histogram(obj_pts, tgt_pts, args, ax6)
+        
+        # Subplot 7: Unweighted direction histogram (polar)
+        ax7 = plt.subplot(4, 3, 7, polar=True)
+        create_direction_plot(obj_pts, tgt_pts, args, ax7)
+        
+        # Subplot 8-9: Joint and gripper offset analysis (spans columns 8-9)
+        ax8 = plt.subplot(4, 3, (8, 9))
+        create_joint_offset_plot(joint_offsets, gripper_offsets, ax8)
+    
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[OK] Saved combined plot: {output_file}")
+
+
+def create_combined_plot_legacy(obj_pts, tgt_pts, lines, xlim, ylim, args, output_file):
+    """Create a combined figure with the original 6 plots arranged in a grid (legacy version)."""
     # Create a large figure with subplots arranged in 3 rows, 3 columns
     fig = plt.figure(figsize=(15, 12), dpi=150)
     
@@ -445,9 +747,6 @@ def create_combined_plot(obj_pts, tgt_pts, lines, xlim, ylim, args, output_file)
     ax6 = plt.subplot(3, 3, 6, polar=True)
     create_direction_plot(obj_pts, tgt_pts, args, ax6)
     
-    # Subplots 7-9: Keep empty or use for additional analysis
-    # This gives us a cleaner 2x3 layout for the main plots
-    
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -455,90 +754,243 @@ def create_combined_plot(obj_pts, tgt_pts, lines, xlim, ylim, args, output_file)
 
 
 
+def save_dataset_info_table(yaml_path, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata, outfile):
+    """Save dataset info table to file."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    create_dataset_info_table(yaml_path, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata, ax)
+    fig.savefig(outfile, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[OK] Saved {outfile}")
+
+
+def save_enhanced_scatter_plot(points, yaws, table_heights, title, outfile, xlim=None, ylim=None):
+    """Save enhanced scatter plot to file."""
+    fig, ax = plt.subplots()
+    create_scatter_plot_enhanced(points, yaws, table_heights, title, ax, xlim, ylim)
+    fig.savefig(outfile, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+
+def save_joint_offset_plot(joint_offsets, gripper_offsets, outfile):
+    """Save joint offset plot to file."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    create_joint_offset_plot(joint_offsets, gripper_offsets, ax)
+    fig.savefig(outfile, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[OK] Saved {outfile}")
+
+
+
 def main():
     ap = argparse.ArgumentParser(description="Plot object/target distributions, connections, and direction histograms from YAML.")
     ap.add_argument("--in", dest="infile", required=True, help="Input YAML filepath.")
+    ap.add_argument("--out-dir", dest="out_dir", type=str, help="Output directory for plots. If not specified, uses the same directory as input file.")
     ap.add_argument("--pad", type=float, default=0.05, help="Relative padding for inferred square bounds.")
     ap.add_argument("--bins", type=int, default=30, help="Histogram bins for X/Y distributions.")
     ap.add_argument("--angle-bins", type=int, default=36, help="Bins for direction histogram (72 -> 5° bins).")
     ap.add_argument("--density", action="store_true", help="Normalize polar histogram to proportion of total distance.")
     ap.add_argument("--show", action="store_true", help="Also show plots interactively.")
     ap.add_argument("--separate", action="store_true", help="Save individual plots separately matching the combined analysis.")
+    ap.add_argument("--legacy", action="store_true", help="Use legacy plotting without enhanced features (for backward compatibility).")
+    ap.add_argument("--no-table", action="store_true", help="Disable the metadata table in the combined plot.")
     args = ap.parse_args()
 
-    obj_pts, tgt_pts, lines = load_positions(args.infile)
+    # Load positions and additional data
+    data_tuple = load_positions(args.infile)
+    
+    # Check if we have the enhanced data format (9 values) or legacy format (3 values)
+    if len(data_tuple) == 9:
+        obj_pts, tgt_pts, lines, obj_yaws, tgt_yaws, table_heights, joint_offsets, gripper_offsets, metadata = data_tuple
+        has_enhanced_data = True
+    elif len(data_tuple) == 8:
+        # Legacy enhanced data format (without metadata)
+        obj_pts, tgt_pts, lines, obj_yaws, tgt_yaws, table_heights, joint_offsets, gripper_offsets = data_tuple
+        metadata = {}
+        has_enhanced_data = True
+    else:
+        # Legacy format compatibility
+        obj_pts, tgt_pts, lines = data_tuple[:3]
+        obj_yaws = [0.0] * len(obj_pts)
+        tgt_yaws = [0.0] * len(tgt_pts) 
+        table_heights = [0.0] * len(obj_pts)
+        joint_offsets = [[0.0] * 6] * len(obj_pts)
+        gripper_offsets = [0.0] * len(obj_pts)
+        metadata = {}
+        has_enhanced_data = False
+
     all_pts = obj_pts + tgt_pts
     xlim = ylim = infer_dim(all_pts, pad=args.pad)
 
     base = os.path.splitext(os.path.basename(args.infile))[0]
-    out_dir = os.path.dirname(os.path.abspath(args.infile)) or "."
+    # Use specified output directory or default to input file's directory
+    if args.out_dir:
+        out_dir = os.path.abspath(args.out_dir)
+        # Create output directory if it doesn't exist
+        os.makedirs(out_dir, exist_ok=True)
+    else:
+        out_dir = os.path.dirname(os.path.abspath(args.infile)) or "."
 
     if args.separate:
-        # New behavior: save the same 6 plots as in combined analysis, but separately
-        out1 = os.path.join(out_dir, f"{base}_objects.png")
-        out2 = os.path.join(out_dir, f"{base}_targets.png")
-        out3 = os.path.join(out_dir, f"{base}_connections.png")
-        out4 = os.path.join(out_dir, f"{base}_combined_xy_hist.png")
-        out5 = os.path.join(out_dir, f"{base}_travel_distance_hist.png")
-        out6 = os.path.join(out_dir, f"{base}_direction_unweighted_polar.png")
+        # Save individual plots
+        if has_enhanced_data and not args.legacy:
+            # Enhanced separate plots
+            out1 = os.path.join(out_dir, f"{base}_objects_enhanced.png")
+            out2 = os.path.join(out_dir, f"{base}_targets_enhanced.png")
+            out3 = os.path.join(out_dir, f"{base}_connections.png")
+            out4 = os.path.join(out_dir, f"{base}_combined_xy_hist.png")
+            out5 = os.path.join(out_dir, f"{base}_travel_distance_hist.png")
+            out6 = os.path.join(out_dir, f"{base}_direction_unweighted_polar.png")
+            out7 = os.path.join(out_dir, f"{base}_joint_offsets.png")
+            out8 = os.path.join(out_dir, f"{base}_dataset_info.png")
 
-        save_scatter_plot(obj_pts, "Object position distribution", out1, xlim, ylim)
-        save_scatter_plot(tgt_pts, "Target position distribution", out2, xlim, ylim)
-        save_line_plot(lines, "Object→Target connections", out3, xlim, ylim)
-        save_coordinate_histogram(obj_pts, tgt_pts, args, out4)
-        save_distance_histogram(obj_pts, tgt_pts, args, out5)
-        save_direction_plot(obj_pts, tgt_pts, args, out6)
+            save_enhanced_scatter_plot(obj_pts, obj_yaws, table_heights, "Object position distribution", out1, xlim, ylim)
+            save_enhanced_scatter_plot(tgt_pts, tgt_yaws, table_heights, "Target position distribution", out2, xlim, ylim)
+            save_line_plot(lines, "Object→Target connections", out3, xlim, ylim)
+            save_coordinate_histogram(obj_pts, tgt_pts, args, out4)
+            save_distance_histogram(obj_pts, tgt_pts, args, out5)
+            save_direction_plot(obj_pts, tgt_pts, args, out6)
+            save_joint_offset_plot(joint_offsets, gripper_offsets, out7)
+            save_dataset_info_table(args.infile, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata, out8)
 
-        print("Saved plots:")
-        print("  ", out1)
-        print("  ", out2)
-        print("  ", out3)
-        print("  ", out4)
-        print("  ", out5)
-        print("  ", out6)
+            print("Saved enhanced plots:")
+            print("  ", out1)
+            print("  ", out2)
+            print("  ", out3)
+            print("  ", out4)
+            print("  ", out5)
+            print("  ", out6)
+            print("  ", out7)
+            print("  ", out8)
+        else:
+            # Legacy separate plots
+            out1 = os.path.join(out_dir, f"{base}_objects.png")
+            out2 = os.path.join(out_dir, f"{base}_targets.png")
+            out3 = os.path.join(out_dir, f"{base}_connections.png")
+            out4 = os.path.join(out_dir, f"{base}_combined_xy_hist.png")
+            out5 = os.path.join(out_dir, f"{base}_travel_distance_hist.png")
+            out6 = os.path.join(out_dir, f"{base}_direction_unweighted_polar.png")
+
+            save_scatter_plot(obj_pts, "Object position distribution", out1, xlim, ylim)
+            save_scatter_plot(tgt_pts, "Target position distribution", out2, xlim, ylim)
+            save_line_plot(lines, "Object→Target connections", out3, xlim, ylim)
+            save_coordinate_histogram(obj_pts, tgt_pts, args, out4)
+            save_distance_histogram(obj_pts, tgt_pts, args, out5)
+            save_direction_plot(obj_pts, tgt_pts, args, out6)
+
+            print("Saved legacy plots:")
+            print("  ", out1)
+            print("  ", out2)
+            print("  ", out3)
+            print("  ", out4)
+            print("  ", out5)
+            print("  ", out6)
     else:
-        # New behavior: save combined plot
-        combined_output = os.path.join(out_dir, f"{base}_combined_analysis.png")
-        create_combined_plot(obj_pts, tgt_pts, lines, xlim, ylim, args, combined_output)
+        # Save combined plot
+        if has_enhanced_data and not args.legacy:
+            combined_output = os.path.join(out_dir, f"{base}_combined_analysis_enhanced.png")
+            create_combined_plot(obj_pts, tgt_pts, lines, obj_yaws, tgt_yaws, table_heights, joint_offsets, gripper_offsets, xlim, ylim, args, combined_output, metadata)
+        else:
+            combined_output = os.path.join(out_dir, f"{base}_combined_analysis.png")
+            create_combined_plot_legacy(obj_pts, tgt_pts, lines, xlim, ylim, args, combined_output)
 
     if args.show:
         if args.separate:
-            # Show the same 6 plots that are generated in separate mode
-            create_scatter_plot(obj_pts, "Object position distribution", xlim=xlim, ylim=ylim)
-            create_scatter_plot(tgt_pts, "Target position distribution", xlim=xlim, ylim=ylim)
-            create_line_plot(lines, "Object→Target connections", xlim=xlim, ylim=ylim)
-            create_coordinate_histogram(obj_pts, tgt_pts, args)
-            create_distance_histogram(obj_pts, tgt_pts, args)
-            create_direction_plot(obj_pts, tgt_pts, args)
+            if has_enhanced_data and not args.legacy:
+                # Show enhanced individual plots
+                create_scatter_plot_enhanced(obj_pts, obj_yaws, table_heights, "Object position distribution", xlim=xlim, ylim=ylim)
+                create_scatter_plot_enhanced(tgt_pts, tgt_yaws, table_heights, "Target position distribution", xlim=xlim, ylim=ylim)
+                create_line_plot(lines, "Object→Target connections", xlim=xlim, ylim=ylim)
+                create_coordinate_histogram(obj_pts, tgt_pts, args)
+                create_distance_histogram(obj_pts, tgt_pts, args)
+                create_direction_plot(obj_pts, tgt_pts, args)
+                create_joint_offset_plot(joint_offsets, gripper_offsets)
+            else:
+                # Show legacy individual plots
+                create_scatter_plot(obj_pts, "Object position distribution", xlim=xlim, ylim=ylim)
+                create_scatter_plot(tgt_pts, "Target position distribution", xlim=xlim, ylim=ylim)
+                create_line_plot(lines, "Object→Target connections", xlim=xlim, ylim=ylim)
+                create_coordinate_histogram(obj_pts, tgt_pts, args)
+                create_distance_histogram(obj_pts, tgt_pts, args)
+                create_direction_plot(obj_pts, tgt_pts, args)
         else:
-            # Show the combined plot using the same function but with display settings
-            fig = plt.figure(figsize=(15, 12), dpi=100)  # Lower DPI for display
-            
-            # Subplot 1: Object positions scatter
-            ax1 = plt.subplot(3, 3, 1)
-            create_scatter_plot(obj_pts, "Object position distribution", ax1, xlim, ylim)
-            
-            # Subplot 2: Target positions scatter
-            ax2 = plt.subplot(3, 3, 2)
-            create_scatter_plot(tgt_pts, "Target position distribution", ax2, xlim, ylim)
-            
-            # Subplot 3: Connections
-            ax3 = plt.subplot(3, 3, 3)
-            create_line_plot(lines, "Object→Target connections", ax3, xlim, ylim)
-            
-            # Subplot 4: Combined X/Y distribution
-            ax4 = plt.subplot(3, 3, 4)
-            create_coordinate_histogram(obj_pts, tgt_pts, args, ax4)
-            
-            # Subplot 5: Travel distance distribution
-            ax5 = plt.subplot(3, 3, 5)
-            create_distance_histogram(obj_pts, tgt_pts, args, ax5)
-            
-            # Subplot 6: Unweighted direction histogram (polar)
-            ax6 = plt.subplot(3, 3, 6, polar=True)
-            create_direction_plot(obj_pts, tgt_pts, args, ax6)
-            
-            plt.tight_layout()
+            # Show combined plot using the same function but with display settings
+            if has_enhanced_data and not args.legacy:
+                # Determine layout based on whether table is included
+                if hasattr(args, 'no_table') and args.no_table:
+                    fig = plt.figure(figsize=(18, 12), dpi=100)  # Lower DPI for display
+                    
+                    ax1 = plt.subplot(3, 3, 1)
+                    create_scatter_plot_enhanced(obj_pts, obj_yaws, table_heights, "Object positions (with yaw & table height)", ax1, xlim, ylim)
+                    
+                    ax2 = plt.subplot(3, 3, 2)
+                    create_scatter_plot_enhanced(tgt_pts, tgt_yaws, table_heights, "Target positions (with yaw & table height)", ax2, xlim, ylim)
+                    
+                    ax3 = plt.subplot(3, 3, 3)
+                    create_line_plot(lines, "Object→Target connections", ax3, xlim, ylim)
+                    
+                    ax4 = plt.subplot(3, 3, 4)
+                    create_coordinate_histogram(obj_pts, tgt_pts, args, ax4)
+                    
+                    ax5 = plt.subplot(3, 3, 5)
+                    create_distance_histogram(obj_pts, tgt_pts, args, ax5)
+                    
+                    ax6 = plt.subplot(3, 3, 6, polar=True)
+                    create_direction_plot(obj_pts, tgt_pts, args, ax6)
+                    
+                    ax7 = plt.subplot(3, 3, (7, 8))
+                    create_joint_offset_plot(joint_offsets, gripper_offsets, ax7)
+                else:
+                    fig = plt.figure(figsize=(18, 16), dpi=100)  # Lower DPI for display
+                    
+                    # Enhanced combined plot for display
+                    ax1 = plt.subplot(4, 3, 1)
+                    create_dataset_info_table(args.infile, obj_pts, tgt_pts, table_heights, joint_offsets, gripper_offsets, metadata, ax1)
+                    
+                    ax2 = plt.subplot(4, 3, 2)
+                    create_scatter_plot_enhanced(obj_pts, obj_yaws, table_heights, "Object positions (with yaw & table height)", ax2, xlim, ylim)
+                    
+                    ax3 = plt.subplot(4, 3, 3)
+                    create_scatter_plot_enhanced(tgt_pts, tgt_yaws, table_heights, "Target positions (with yaw & table height)", ax3, xlim, ylim)
+                    
+                    ax4 = plt.subplot(4, 3, 4)
+                    create_line_plot(lines, "Object→Target connections", ax4, xlim, ylim)
+                    
+                    ax5 = plt.subplot(4, 3, 5)
+                    create_coordinate_histogram(obj_pts, tgt_pts, args, ax5)
+                    
+                    ax6 = plt.subplot(4, 3, 6)
+                    create_distance_histogram(obj_pts, tgt_pts, args, ax6)
+                    
+                    ax7 = plt.subplot(4, 3, 7, polar=True)
+                    create_direction_plot(obj_pts, tgt_pts, args, ax7)
+                    
+                    ax8 = plt.subplot(4, 3, (8, 9))
+                    create_joint_offset_plot(joint_offsets, gripper_offsets, ax8)
+                
+                plt.tight_layout()
+            else:
+                # Legacy combined plot for display
+                fig = plt.figure(figsize=(15, 12), dpi=100)  # Lower DPI for display
+                
+                ax1 = plt.subplot(3, 3, 1)
+                create_scatter_plot(obj_pts, "Object position distribution", ax1, xlim, ylim)
+                
+                ax2 = plt.subplot(3, 3, 2)
+                create_scatter_plot(tgt_pts, "Target position distribution", ax2, xlim, ylim)
+                
+                ax3 = plt.subplot(3, 3, 3)
+                create_line_plot(lines, "Object→Target connections", ax3, xlim, ylim)
+                
+                ax4 = plt.subplot(3, 3, 4)
+                create_coordinate_histogram(obj_pts, tgt_pts, args, ax4)
+                
+                ax5 = plt.subplot(3, 3, 5)
+                create_distance_histogram(obj_pts, tgt_pts, args, ax5)
+                
+                ax6 = plt.subplot(3, 3, 6, polar=True)
+                create_direction_plot(obj_pts, tgt_pts, args, ax6)
+                
+                plt.tight_layout()
 
         plt.show()
 

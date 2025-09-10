@@ -6,7 +6,7 @@ from collections import deque
 DELTA_ACTIONS = True
 SNAP_GRIPPER_ACTIONS = True
 GRIPPER_SNAP_THRESHOLD = 0.015
-ENFORCE_GRIPPER_DELTA = 0.0015
+ENFORCE_GRIPPER_DELTA = 0.001
 ARM_TARGET_TOL = 0.003
 GRIPPER_TARGET_TOL = 0.0001
 
@@ -203,8 +203,8 @@ class RFMActionManager:
 
             gr00t_obs = {
                 "video.camera_wrist": full_obs["cameras"]["camera_wrist"][env_idx].cpu().unsqueeze(0).numpy(),
-                "video.camera_global_side": full_obs["cameras"]["camera_global_side"][env_idx].cpu().unsqueeze(0).numpy(),
-                "video.camera_global_front": full_obs["cameras"]["camera_global_front"][env_idx].cpu().unsqueeze(0).numpy(),
+                "video.camera_global_secondary": full_obs["cameras"]["camera_global_secondary"][env_idx].cpu().unsqueeze(0).numpy(),
+                "video.camera_global_main": full_obs["cameras"]["camera_global_main"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.robot_arm": full_obs["arm_joints"]["arm_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.gripper": full_obs["gripper_joint"]["gripper_joint_pos"][env_idx].cpu().unsqueeze(0).numpy(),
                 "state.delta_robot_arm": arm_delta,

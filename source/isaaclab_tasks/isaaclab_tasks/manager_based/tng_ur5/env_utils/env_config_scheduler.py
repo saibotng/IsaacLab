@@ -123,7 +123,7 @@ class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
         """Return the current results dictionary."""
         return self.results_dict
     
-    def finalize_and_store_results(self):
+    def finalize_and_store_results(self, output_dir: str = None):
         """Finalize the results dictionary by computing the overall success rate."""
         total_cases = self.results_dict['total_cases']
         total_successes = 0
@@ -141,11 +141,36 @@ class EnvConfigSchedulerBenchmark(EnvConfigSchedulerBase):
         self.results_dict["average_successful_completion_time"] = sum_successfull_completion_times / total_successes if total_successes > 0 else 0.0
         self.results_dict["metric_successes_rates"] = {k: v / total_cases for k, v in metric_successes.items()}
         ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        output_path = os.path.join("tng_benchmark_results", self.name, f"results_{ts}.json")
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, self.name + "_results", f"results_{ts}.json")
+            summary_path = os.path.join(output_dir, self.name + "_results", f"summary_{ts}.txt")
+        else:
+            output_path = os.path.join("tng_benchmark_results", self.name, f"results_{ts}.json")
+            summary_path = os.path.join("tng_benchmark_results", self.name, f"summary_{ts}.txt")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(self.results_dict, f, ensure_ascii=False, indent=2)
+        
+        # Capture and store the summary
+        summary_text = get_results_summary_text(self.results_dict)
+        with open(summary_path, "w") as f:
+            f.write(summary_text)
         print_results_summary(self.results_dict)
+
+def get_results_summary_text(results_dict: dict) -> str:
+    """
+    Returns the summary text that would be printed by print_results_summary().
+    """
+    import io
+    from contextlib import redirect_stdout
+    
+    # Capture the print output
+    f = io.StringIO()
+    with redirect_stdout(f):
+        print_results_summary(results_dict)
+    
+    return f.getvalue()
 
 def print_results_summary(results_dict: dict):
     """

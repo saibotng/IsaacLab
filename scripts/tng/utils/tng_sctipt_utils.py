@@ -13,3 +13,7 @@ def patch_env_config_for_configuration_scheduling(env_cfg, yaml_path, mode):
     env_cfg.events.reset_env.params = {
         "scheduler": scheduler
     }
+
+def patch_env_recorder_dir_config(env_cfg, recorder_dir):
+    env_cfg.recorders.dataset_export_dir_path = recorder_dir
+    env_cfg.recorders.dataset_filename = "datagen_recordings"

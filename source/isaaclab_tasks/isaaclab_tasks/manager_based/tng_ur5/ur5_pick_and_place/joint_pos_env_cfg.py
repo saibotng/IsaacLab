@@ -55,8 +55,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             ),
         )
 
-        self.scene.camera_global_front = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_front",
+        self.scene.camera_global_main = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_main",
             update_period=0,
             height=512,
             width=512,
@@ -76,8 +76,8 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
         )
 
 
-        self.scene.camera_global_side = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_side",
+        self.scene.camera_global_secondary = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/world/camera_global_secondary",
             update_period=0,
             height=512,
             width=512,
@@ -96,14 +96,10 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             ),
         )
 
-
-
-
         # Set actions for the specific robot type (UR5)
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot", joint_names=ARM_JOINTS, scale=1.0, use_default_offset=False
         )
-
 
         # Set gripper actions for each joint in GRIPPER_JOINTS
         self.actions.gripper_action = mdp.JointPositionActionCfg(
@@ -164,8 +160,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
 
 @configclass
 class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
-    #TODO: make recorder deactivatable from config
-    recorders = None#RecorderCfg_Inference()
+    recorders = RecorderCfg_Inference()
     events = EventCfg_Inference()
     terminations = TerminationsCfg_Inference()
     def __post_init__(self):
@@ -175,5 +170,5 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         self.scene.robot = UR5_INFERENCE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.num_envs = 1
         self.scene.env_spacing = 5
-        self.episode_length_s = 40.0
+        self.episode_length_s = 5.0
 

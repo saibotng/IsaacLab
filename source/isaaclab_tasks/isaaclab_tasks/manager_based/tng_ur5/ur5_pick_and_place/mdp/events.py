@@ -19,6 +19,9 @@ from isaaclab.envs.mdp.events import reset_root_state_uniform
 from isaaclab.assets import Articulation
 from pxr import UsdShade, UsdGeom, Sdf, Gf
 import isaaclab.sim as sim_utils
+import isaaclab.sensors.camera as camera_utils
+from scipy.spatial.transform import Rotation as R
+from pxr import UsdGeom
 
 
 if TYPE_CHECKING:
@@ -27,7 +30,45 @@ if TYPE_CHECKING:
 def add_lists(a, b):
     return (np.array(a) + np.array(b)).tolist()
 
+def intrinsic_euler_deg_to_quat_wxyz(rpy):
+    qx, qy, qz, qw = R.from_euler("XYZ", [rpy[0], rpy[1], rpy[2]], degrees=True).as_quat() 
+    return torch.tensor([qw, qx, qy, qz], dtype=torch.float32)
 
+def rearrange_wxyz_to_target_quat(quat_wxyz: torch.Tensor) -> torch.Tensor:
+    return torch.tensor([quat_wxyz[1], -quat_wxyz[0], -quat_wxyz[3], quat_wxyz[2]])
+
+def _gf_xform_to_pos_quat(xf: Gf.Matrix4d):
+    t = xf.ExtractTranslation()
+    q = Gf.Quatf(xf.ExtractRotationQuat())  # cast to float quat
+    pos = torch.tensor([t[0], t[1], t[2]], dtype=torch.float32)
+    quat_wxyz = torch.tensor([q.GetReal(), q.GetImaginary()[0], q.GetImaginary()[1], q.GetImaginary()[2]],
+                             dtype=torch.float32)
+    return pos, quat_wxyz
+
+def set_cam_pose_relative_to_parent(cam, env_id: int, camera_pose: dict, device) -> None:
+    parent_prim = cam._parent_prims[env_id]
+    cache = UsdGeom.XformCache()
+    parent_world_xf = cache.GetLocalToWorldTransform(parent_prim)
+    parent_pos, parent_quat = _gf_xform_to_pos_quat(parent_world_xf)
+
+    # relative transform (in parent frame)
+    rel_pos = torch.tensor(camera_pose["pos"], dtype=torch.float32, device=device)  
+    rel_rot = torch.tensor(convert_deg_to_rad(camera_pose["rpy"]), device=device)
+    #rel_quat = math_utils.quat_from_euler_xyz(rel_rot[0], rel_rot[1], rel_rot[2])
+    rel_quat = intrinsic_euler_deg_to_quat_wxyz(camera_pose["rpy"]).to(device)
+
+    parent_pos = parent_pos.to(device)
+    parent_quat = parent_quat.to(device)
+
+    # Compose correctly: world = parent ∘ relative
+    world_quat = rearrange_wxyz_to_target_quat(math_utils.quat_mul(parent_quat, rel_quat))                 
+    world_pos  = parent_pos + math_utils.quat_apply(parent_quat, rel_pos)    
+
+    cam.set_world_poses(
+        positions=world_pos.unsqueeze(0),
+        orientations=world_quat.unsqueeze(0),
+        env_ids=torch.tensor([env_id], device=device),
+    )
 
 def reset_env_from_scheduler(
         env: ManagerBasedEnv,
@@ -37,13 +78,28 @@ def reset_env_from_scheduler(
         object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object", body_names="Object"),
         table_asset_cfg: SceneEntityCfg = SceneEntityCfg("table", body_names="Table"),
         robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-
+        camera_global_main_cfg: SceneEntityCfg = SceneEntityCfg("camera_global_main"),
+        camera_global_secondary_cfg: SceneEntityCfg = SceneEntityCfg("camera_global_secondary"),
+        camera_wrist_cfg: SceneEntityCfg = SceneEntityCfg("camera_wrist")
 ):
     if env.extras.get("scheduler") is None:
         scheduler.register_in_env(env)
 
     for env_id in env_ids.tolist():
         case = scheduler.get_new_case_for_env(env_id, env)
+
+        camera_keys = {
+            "camera_pose_main": camera_global_main_cfg,
+            "camera_pose_secondary": camera_global_secondary_cfg,
+            "camera_pose_wrist": camera_wrist_cfg,
+        }
+        for key, cam_cfg in camera_keys.items():
+            if key in case:
+                camera_pose = case[key]
+                cam: camera_utils.Camera = env.scene[cam_cfg.name]
+                set_cam_pose_relative_to_parent(cam, env_id, camera_pose, env.device)
+            else:
+                print(f"[WARNING] Missing key in case definition: '{key}'. FALLING BACK TO DEFAULT")
 
         if "table_offset" in case:
             table_offset_pos, table_offset_rpy = case["table_offset"]["pos"], convert_deg_to_rad(case["table_offset"]["rpy"])
@@ -85,14 +141,14 @@ def reset_env_from_scheduler(
         if "target_rgb" in case:
             target_rgb = case["target_rgb"]
             force_color_material_on_all_meshes(env, env_id, target_asset_cfg, rgb=target_rgb)
-        else:
-            print("[WARNING] Missing key in case definition: 'target_rgb'. FALLING BACK TO DEFAULT")
 
         obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
         tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
         object_pose = add_lists(obj_pos, table_offset_pos) + add_lists(obj_rpy, table_offset_rpy)
         target_pose = add_lists(tgt_pos, table_offset_pos) + add_lists(tgt_rpy, table_offset_rpy)
         set_rigid_object_poses(env, env_id, [object_asset_cfg, target_asset_cfg], [object_pose, target_pose])
+
+
 
 def reset_env_random(
     env: ManagerBasedEnv,

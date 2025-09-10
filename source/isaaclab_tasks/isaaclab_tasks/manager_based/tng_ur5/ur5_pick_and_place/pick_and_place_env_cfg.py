@@ -63,9 +63,9 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     target_object: RigidObjectCfg | DeformableObjectCfg = MISSING  # for pick and place
 
     # Camera
-    camera_global_front: CameraCfg = MISSING
+    camera_global_main: CameraCfg = MISSING
 
-    camera_global_side: CameraCfg = MISSING
+    camera_global_secondary: CameraCfg = MISSING
 
     camera_wrist: CameraCfg = MISSING
 
@@ -226,8 +226,8 @@ class ObservationsCfg:
     @configclass
     class CameraObsCfg(ObsGroup):
         camera_wrist = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_wrist"), "normalize": False})
-        camera_global_front = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_front"), "normalize": False})
-        camera_global_side = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_side"), "normalize": False})
+        camera_global_main = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_main"), "normalize": False})
+        camera_global_secondary = ObsTerm(func=mdp.image, params={"sensor_cfg": SceneEntityCfg("camera_global_secondary"), "normalize": False})
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -292,8 +292,8 @@ class ObservationRecorder(RecorderTerm):
             "gripper_joint_pos_state": obs["gripper_joint"]["gripper_joint_pos"],
             "tcp_pose_state": obs["end_effector"],
 
-            "camera_global_front": obs["cameras"]["camera_global_front"],
-            "camera_global_side": obs["cameras"]["camera_global_side"],
+            "camera_global_main": obs["cameras"]["camera_global_main"],
+            "camera_global_secondary": obs["cameras"]["camera_global_secondary"],
             "camera_wrist": obs["cameras"]["camera_wrist"],
         }
 

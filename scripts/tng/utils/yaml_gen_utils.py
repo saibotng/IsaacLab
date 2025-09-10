@@ -1,25 +1,92 @@
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import numpy as np
 import random
 from dataclasses import dataclass, asdict
+from colors import Color
+from scipy.spatial.transform import Rotation as R
+from enum import Enum
 
 WEDGE_COUNT = 72     # angular wedges
 LEN_BINS    = 60
 MAX_DISTANCE_LIMIT_FACTOR = 1/math.sqrt(2)
-FIXED_TARGET_XY = (0.0, 0.0)
+FIXED_TARGET_XY = (0.0, 0.0)  # radians
+PROMPT_TEMPLATE = "Pick up the {object_color} cube and place it on the {target_color} platform"
+DEFAULT_TRAVEL_HEIGHT = 0.12
+RPY_ZERO = [0.0, 0.0, 0.0]
+MAX_GRIPPER_DISPLACEMENT = 0.038
+NUM_ARM_JOINTS = 6
 
 @dataclass
 class Pose:
     pos: List[float]
     rpy: List[float]
 
+class CameraPose(Enum):
+    CAMERA_FRONT_POSE = Pose(pos=[1.4, 0.0, 0.75], rpy=[0.0, 55.0, 90.0])
+    CAMERA_SIDE_POSE = Pose(pos=[0.5, 0.9, 0.5], rpy=[-60, 0.0, 180.0])
+    CAMERA_WRIST_POSE = Pose(pos=[0.0, -0.11, 0.035], rpy=[151.0, 0.0, 0.0]) 
+
+
+    @property
+    def pose(self):
+        return self.value
+
+    @property
+    def pretty(self) -> str:
+        """Readable name, e.g. 'Deep Purple' for Color.DEEP_PURPLE."""
+        return self.name.replace("_", " ").lower()
+    
+    @classmethod
+    def get_camera_pose_from_string(cls, name: str) -> Pose:
+        try:
+            _ = cls[name]
+        except KeyError:
+            raise ValueError(f"Unknown camera pose name: {name}. Valid names are: {[pose.name for pose in cls]}")
+        return cls[name].pose
+    
+    @classmethod
+    def apply_camera_pose_randomization(cls, base_pose: Pose, position_jitter: float, rotation_jitter: float) -> Pose:
+        """Apply random jitter to a given camera pose."""
+        # Use global random state since seed is already set in calling scripts
+        # Creating a new Random(seed) instance would produce identical results for each call
+
+        # Apply position jitter
+        jittered_pos = [
+            base_pose.pos[0] + random.uniform(-position_jitter, position_jitter),
+            base_pose.pos[1] + random.uniform(-position_jitter, position_jitter),
+            base_pose.pos[2] + random.uniform(-position_jitter, position_jitter),
+        ]
+
+        # Apply rotation jitter
+        r = R.from_euler('xyz', base_pose.rpy, degrees=True)
+        jitter_rot = R.from_euler('xyz', [
+            random.uniform(-rotation_jitter, rotation_jitter),
+            random.uniform(-rotation_jitter, rotation_jitter),
+            random.uniform(-rotation_jitter, rotation_jitter),
+        ], degrees=True)
+        new_r = (jitter_rot * r).as_euler('xyz', degrees=True)
+
+        return Pose(pos=jittered_pos, rpy=new_r.tolist())
+
+
+
+
 @dataclass
 class Case:
     id: str
     object: Pose
     target: Pose
-    prompt: str
+    object_rgb: Tuple[float, float, float] = Color.BLUE.rgb # Default blue
+    target_rgb: Tuple[float, float, float] = Color.BLACK.rgb # Default black
+    table_offset: Pose = Pose(pos=[0.0, 0.0, 0.0], rpy=[0.0, 0.0, 0.0])
+    robot_joint_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    gripper_offset: Tuple[float] = (0.0,)
+    prompt: str = PROMPT_TEMPLATE.format(object_color=Color.BLUE.pretty, target_color=Color.BLACK.pretty)
+    camera_pose_main: Pose = CameraPose.CAMERA_FRONT_POSE.pose
+    camera_pose_secondary: Pose = CameraPose.CAMERA_SIDE_POSE.pose
+    camera_pose_wrist: Pose = CameraPose.CAMERA_WRIST_POSE.pose
+
 
 @dataclass
 class BenchCase(Case):
@@ -27,7 +94,24 @@ class BenchCase(Case):
 
 @dataclass
 class DatasetCase(Case):
-    travel_height: float
+    travel_height: float = DEFAULT_TRAVEL_HEIGHT
+
+def sample_yaw_angles_for_poses(poses: List[Pose], yaw_range: float) -> List[Pose]:
+    for p in poses:
+        yaw = random.uniform(-yaw_range, yaw_range)
+        p.rpy[2] = yaw
+    return poses
+
+def sample_table_offset(max_z_offset: float) -> Pose:
+    """Sample a random table offset within the given max_offset."""
+    tz = random.uniform(-max_z_offset, max_z_offset)
+    return Pose(pos=[0.0, 0.0, tz], rpy=[0.0, 0.0, 0.0])
+
+def sample_robot_starting_pose_offsets(joint_randomization_range: float) -> Tuple[List[float], List[float]]:
+    joint_limits = [(-joint_randomization_range, joint_randomization_range)]*NUM_ARM_JOINTS
+    joint_positions = [random.uniform(lim[0], lim[1]) for lim in joint_limits]
+    gripper_position = [random.uniform(0.0, MAX_GRIPPER_DISPLACEMENT)]
+    return joint_positions, gripper_position
 
 def sample_point(dim: float) -> Tuple[float, float]:
     """Uniform sample in the square [-dim, dim]^2."""
@@ -89,14 +173,14 @@ def grid_centers(dim: float, r: int) -> np.ndarray:
     centers = [(x, y) for y in coords for x in coords]  # row-major (y outer for visual grouping)
     return np.array(centers, dtype=float)
 
-def grid_points(dim: float, r: int) -> List[Tuple[float, float]]:
+def grid_points(dim: float, r: int) -> np.ndarray:
     """Centers of an r×r grid over [-dim, dim]^2, excluding the borders."""
     if r <= 0:
-        return []
+        return np.empty((0, 2), dtype=float)
     step = (2.0 * dim) / (r-1)
     coords = [-dim + i * step for i in range(r)]
     grid_points = [(x, y) for y in coords for x in coords]  # row-major (y outer for visual grouping)
-    return grid_points
+    return np.array(grid_points, dtype=float)
 
 def build_pairs(candidates: np.ndarray, threshold: float) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
 
@@ -200,3 +284,4 @@ def build_pairs(candidates: np.ndarray, threshold: float) -> List[Tuple[Tuple[fl
         tx, ty = candidates[j]
         pairs.append(((float(ox), float(oy)), (float(tx), float(ty))))
     return pairs
+

@@ -24,10 +24,11 @@ parser = argparse.ArgumentParser(description="Pick and place state machine for p
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the dataset YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
+parser.add_argument("--recorder_dir", type=str, default=None, help="Directory to save the recordings. If not specified, recordings will be saved in recording dir with timestamp.")
 
 # Parse args first to check if renderer should be enabled
 temp_args, _ = parser.parse_known_args()
@@ -69,7 +70,7 @@ from isaaclab.assets.rigid_object.rigid_object_data import RigidObjectData
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.manager_based.tng_ur5.ur5_pick_and_place.pick_and_place_env_cfg import PickAndPlaceEnvCfg
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
-from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling
+from utils.tng_sctipt_utils import patch_env_config_for_configuration_scheduling, patch_env_recorder_dir_config
 from isaaclab_tasks.manager_based.tng_ur5.env_utils.env_config_scheduler import EnvConfigSchedulerDatagen
 from isaaclab_tasks.manager_based.tng_ur5.tng_assets.ur5.ur5 import GRIPPING_CENTER_OFFSET
 
@@ -394,6 +395,9 @@ def main():
     # create environment
     if args_cli.from_yaml:
         patch_env_config_for_configuration_scheduling(env_cfg, args_cli.from_yaml, "datagen")
+
+    if args_cli.recorder_dir:
+        patch_env_recorder_dir_config(env_cfg, args_cli.recorder_dir)
 
     env = gym.make("TNG-Pick-And-Place-Cube-UR5-IK-Abs-Record-v0", cfg=env_cfg)
     obs, _ = env.reset()

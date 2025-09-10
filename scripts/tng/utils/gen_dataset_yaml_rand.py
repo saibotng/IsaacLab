@@ -1,5 +1,6 @@
 
-from yaml_gen_utils import get_corners_with_margin, gen_random_pairs, DatasetCase, Pose
+from yaml_gen_utils import get_corners_with_margin, gen_random_pairs, DatasetCase, Pose, sample_robot_starting_pose_offsets, sample_table_offset, PROMPT_TEMPLATE, sample_yaw_angles_for_poses, RPY_ZERO, CameraPose
+from colors import Color
 import argparse
 import math
 import random
@@ -7,43 +8,118 @@ from dataclasses import asdict
 from typing import List, Tuple
 import yaml
 import numpy as np
-
-PROMPT_TEXT = "Pick up the blue cube and place it on the black platform"
-TRAVEL_HEIGHT = 0.12
-RPY_ZERO = [0.0, 0.0, 0.0]
-Z_CONST = 0.0
-
-
+#TODO: a lot of duplicate code. Improve that
+class NoAliasDumper(yaml.SafeDumper):
+    """YAML dumper that prevents the use of anchors and aliases."""
+    def ignore_aliases(self, data):
+        return True
 
 
-def build_cases(dim: float, num_random: int, fixed_target: bool, threshold: float, calibration_episodes: bool) -> List[DatasetCase]:
+
+
+CALIBRATION_MARGIN = 0.1  # relative to dim
+
+
+def build_cases(dim: float, 
+                num_random: int, 
+                fixed_target: bool, 
+                threshold: float, 
+                calibration_episodes: bool, 
+                randomize_colors: bool, 
+                joint_randomization_range: float, 
+                table_height_randomization_range: float, 
+                objects_yaw_randomization_range: float, 
+                camera_main: str,
+                camera_secondary: str,
+                camera_wrist: str,
+                randomize_camera_poses: bool,
+                seed: int) -> List[DatasetCase]:
 
     test_cases: List[DatasetCase] = []
 
     if calibration_episodes:
-        corners = get_corners_with_margin(dim, relative_margin=0.1)
-        for (ox, oy) in corners:
-            for (tx, ty) in corners:
-                if (ox == tx) and (oy == ty):
-                    continue
-                test_cases.append(DatasetCase(
-                    id="",  # fill later
-                    object=Pose(pos=[ox, oy, Z_CONST], rpy=RPY_ZERO.copy()),
-                    target=Pose(pos=[tx, ty, Z_CONST], rpy=RPY_ZERO.copy()),
-                    travel_height=TRAVEL_HEIGHT,
-                    prompt=PROMPT_TEXT
-                ))
+        corners = get_corners_with_margin(dim, relative_margin=CALIBRATION_MARGIN)
+        if table_height_randomization_range > 0.0:
+            calibration_heights = [-table_height_randomization_range*CALIBRATION_MARGIN, table_height_randomization_range*CALIBRATION_MARGIN]
+        else:
+            calibration_heights = [0.0]
+        for z in calibration_heights:
+            for (ox, oy) in corners:
+                for (tx, ty) in corners:
+                    if (ox == tx) and (oy == ty):
+                        continue
+
+                    object_pose = Pose(pos=[ox, oy, 0.0], rpy=RPY_ZERO.copy())
+                    target_pose = Pose(pos=[tx, ty, 0.0], rpy=RPY_ZERO.copy())
+                    if objects_yaw_randomization_range > 0.0:
+                        object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
+                    case = DatasetCase(
+                        id="",  # fill later
+                        object=object_pose,
+                        target=target_pose,
+                        camera_pose_main = CameraPose.get_camera_pose_from_string(camera_main),
+                        camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
+                        camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
+                    )
+
+                    case.table_offset.pos[2] = z
+
+                    if joint_randomization_range > 0.0: 
+                        case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
+
+
+                    if randomize_colors:
+                        object_color = Color.sample(n=1)[0]
+                        target_color = Color.sample(n=1, exclude=[object_color])[0]
+                        case.object_rgb = object_color.rgb
+                        case.target_rgb = target_color.rgb
+                        case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
+
+                    if randomize_camera_poses:
+                        case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.0)
+                        case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
+                        case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
+
+                    
+                    test_cases.append(case)
+
 
     # 3) Random episodes with distance threshold
     pairs = gen_random_pairs(dim, num_random, fixed_target, threshold)
     for (o, t) in pairs:
-        test_cases.append(DatasetCase(
+        object_pose = Pose(pos=[o[0], o[1], 0.0], rpy=RPY_ZERO.copy())
+        target_pose = Pose(pos=[t[0], t[1], 0.0], rpy=RPY_ZERO.copy())
+        if objects_yaw_randomization_range > 0.0:
+            object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
+
+        case = DatasetCase(
             id="",
-            object=Pose(pos=[o[0], o[1], Z_CONST], rpy=RPY_ZERO.copy()),
-            target=Pose(pos=[t[0], t[1], Z_CONST], rpy=RPY_ZERO.copy()),
-            travel_height=TRAVEL_HEIGHT,
-            prompt=PROMPT_TEXT
-        ))
+            object=object_pose,
+            target=target_pose,
+            camera_pose_main = CameraPose.get_camera_pose_from_string(camera_main),
+            camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
+            camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
+        )
+
+        if joint_randomization_range > 0.0: 
+            case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
+
+        if table_height_randomization_range > 0.0:
+            case.table_offset = sample_table_offset(max_z_offset=table_height_randomization_range)
+
+        if randomize_colors:
+            object_color = Color.sample(n=1)[0]
+            target_color = Color.sample(n=1, exclude=[object_color])[0]
+            case.object_rgb = object_color.rgb
+            case.target_rgb = target_color.rgb
+            case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
+
+        if randomize_camera_poses:
+            case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.0)
+            case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
+            case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
+
+        test_cases.append(case)
 
     # Assign IDs with zero-padding
     total = len(test_cases)
@@ -54,9 +130,25 @@ def build_cases(dim: float, num_random: int, fixed_target: bool, threshold: floa
     return test_cases
 
 
-def build_yaml(name: str, dim: float, num_random: int, fixed_target: bool, threshold: float, calibration_episodes: bool):
+def build_yaml(name: str, 
+               dim: float, 
+               num_random: int, 
+               fixed_target: bool, 
+               threshold: float, 
+               calibration_episodes: bool, 
+               randomize_colors: bool, 
+               joint_randomization_range: float, 
+               table_height_randomization_range: float, 
+               objects_yaw_randomization_range: float, 
+               camera_main: str,
+               camera_secondary: str,
+               camera_wrist: str,
+               randomize_camera_poses: bool,
+               seed: int,
+               metadata: dict) -> dict:
     doc = {
         "name": name,
+        "metadata": metadata,
         "idle_case": {
             "id": "idle_case",
             "object": {"pos": [0.1, -0.1, 0.0], "rpy": [0.0, 0.0, 0.0]},
@@ -67,14 +159,35 @@ def build_yaml(name: str, dim: float, num_random: int, fixed_target: bool, thres
         "test_cases": []
     }
 
-    cases = build_cases(dim, num_random, fixed_target, threshold, calibration_episodes)
+    cases = build_cases(dim, 
+                        num_random, 
+                        fixed_target, 
+                        threshold, 
+                        calibration_episodes, 
+                        randomize_colors, 
+                        joint_randomization_range, 
+                        table_height_randomization_range, 
+                        objects_yaw_randomization_range, 
+                        camera_main, 
+                        camera_secondary, 
+                        camera_wrist, 
+                        randomize_camera_poses, 
+                        seed)
     for c in cases:
         doc["test_cases"].append({
             "id": c.id,
             "object": asdict(c.object),
             "target": asdict(c.target),
             "travel_height": c.travel_height,
-            "prompt": c.prompt
+            "object_rgb": c.object_rgb,
+            "target_rgb": c.target_rgb,
+            "table_offset": asdict(c.table_offset),
+            "robot_joint_offsets": c.robot_joint_offsets,
+            "gripper_offset": c.gripper_offset,
+            "prompt": c.prompt,
+            "camera_pose_main": asdict(c.camera_pose_main),
+            "camera_pose_secondary": asdict(c.camera_pose_secondary),
+            "camera_pose_wrist": asdict(c.camera_pose_wrist),
         })
     return doc
 
@@ -89,6 +202,14 @@ def main():
     ap.add_argument("--calibration_episodes", action="store_true", help="Include calibration episodes (corners + edges).")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility.")
     ap.add_argument("--out_dir", type=str, required=True, help="Output YAML filepath.")
+    ap.add_argument("--randomize_colors", action="store_true", help="If set, randomize object/target colors.")
+    ap.add_argument("--joint_randomization_range", type=float, default=0.0, help="Range (in degrees) for randomizing robot's starting joint positions. If 0, no randomization.")
+    ap.add_argument("--table_height_randomization_range", type=float, default=0.0, help="Range (in meters) for randomizing table height. If 0, no randomization.")
+    ap.add_argument("--objects_yaw_randomization_range", type=float, default=0.0, help="Range (in degrees) for randomizing object/target yaw. If 0, no randomization.")
+    ap.add_argument("--camera_main", type=str, default="CAMERA_FRONT_POSE", help="Camera pose for main view. Options: CAMERA_FRONT_POSE, CAMERA_SIDE_POSE, CAMERA_WRIST_POSE")
+    ap.add_argument("--camera_secondary", type=str, default="CAMERA_SIDE_POSE", help="Camera pose for secondary view. Options: CAMERA_FRONT_POSE, CAMERA_SIDE_POSE, CAMERA_WRIST_POSE")
+    ap.add_argument("--camera_wrist", type=str, default="CAMERA_WRIST_POSE", help="Camera pose for wrist view. Options: CAMERA_FRONT_POSE, CAMERA_SIDE_POSE, CAMERA_WRIST_POSE")
+    ap.add_argument("--randomize_camera_poses", action="store_true", help="If set, randomize camera poses")
     args = ap.parse_args()
 
 
@@ -99,12 +220,34 @@ def main():
     if args.num_random_episodes < 0:
         raise ValueError("--num-random-episodes must be >= 0")
 
-    doc = build_yaml(args.name, args.dim, args.num_random_episodes, args.fixed_target, args.threshold, args.calibration_episodes)
+    # Create metadata from all parsed arguments, excluding certain fields
+    metadata = vars(args).copy()
+    # Remove fields that shouldn't be in metadata
+    metadata.pop('out_dir', None)
+    metadata.pop('fixed_target', None)
+    
+    doc = build_yaml(args.name, 
+                     args.dim, 
+                     args.num_random_episodes, 
+                     args.fixed_target, 
+                     args.threshold, 
+                     args.calibration_episodes, 
+                     args.randomize_colors, 
+                     args.joint_randomization_range, 
+                     args.table_height_randomization_range, 
+                     args.objects_yaw_randomization_range, 
+                     args.camera_main,
+                     args.camera_secondary,
+                     args.camera_wrist,
+                     args.randomize_camera_poses,
+                     args.seed,
+                     metadata)
 
     with open(args.out_dir + args.name + ".yaml", "w", encoding="utf-8") as f:
-        yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False)
+        yaml.dump(doc, f, sort_keys=False, default_flow_style=False, Dumper=NoAliasDumper)
 
     calib_total = 4 * 3 if args.calibration_episodes else 0
+    calib_total *= 2 if args.table_height_randomization_range > 0.0 else 1
     total = calib_total + args.num_random_episodes
     print(f"Wrote {args.out_dir + args.name + '.yaml'}")
     print(f"Calibration episodes: {calib_total}")

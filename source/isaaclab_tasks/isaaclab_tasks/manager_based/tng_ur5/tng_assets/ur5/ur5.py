@@ -52,7 +52,7 @@ UR5_CFG = ArticulationCfg(
             "wrist_1_joint": -1.712,
             "wrist_2_joint": -1.571,
             "wrist_3_joint": 0.0,
-            "hand_to_.*": 0.04
+            "hand_to_.*": 0.0
         },
     ),
     actuators={
@@ -97,7 +97,9 @@ UR5_INFERENCE_CFG.actuators["ur5_shoulder"].stiffness = 2500.0
 UR5_INFERENCE_CFG.actuators["ur5_shoulder"].damping = 80.0
 UR5_INFERENCE_CFG.actuators["ur5_wrist"].stiffness = 2500.0
 UR5_INFERENCE_CFG.actuators["ur5_wrist"].damping = 80.0
-UR5_INFERENCE_CFG.actuators["ur5_hand"].stiffness = 3000.0
+UR5_INFERENCE_CFG.actuators["ur5_hand"].stiffness = 10000.0
+UR5_INFERENCE_CFG.actuators["ur5_hand"].velocity_limit = 1.5
+UR5_INFERENCE_CFG.actuators["ur5_hand"].velocity_limit_sim = 1.5
 
 
 
