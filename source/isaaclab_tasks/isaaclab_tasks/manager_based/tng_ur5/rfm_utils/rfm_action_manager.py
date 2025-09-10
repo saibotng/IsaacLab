@@ -114,7 +114,6 @@ class RFMActionManager:
     def maybe_update_targets(self, update_mask: torch.Tensor, obs):
         if not update_mask.any():
             return
-        #TODO: store latest observations for envs that get updated. Don't forget to clear them on reset. Don't forget to clone(). First check if similar to current approach. If yes, this is awood workflow for delta tcp as well
         at_last_now = update_mask & (self.ptr == (self.action_horizon - 1))
         can_advance = update_mask & (self.ptr < self.action_horizon - 1)
 
