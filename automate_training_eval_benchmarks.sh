@@ -1,21 +1,22 @@
 set -euo pipefail
-experiment_name=simple_test
-dataset_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/simple_trajectory/
+experiment_name=original_architecture_cheat_dataset_baseline
+dataset_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/cheat_dataset_200/
 simple_trajectory_dataset_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/simple_trajectory/
 data_config="tng_ur5_AbsJointAndAbsTCPState_DeltaJointAction_2Cams"
-max_steps=3
+max_steps=35000
 batch_size=16
-save_steps=1000
+save_steps=5000
 parallel_envs=10
 benchmarks=(
-    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_benchmarks/benchmark_easy_default_cams_small.yaml
-    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_benchmarks/benchmark_hard_default_cams_small.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_benchmarks/benchmark_easy_default_cams.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_benchmarks/benchmark_hard_default_cams.yaml
 )
 
 
 experiment_dir=/home/innovation-hacking/luebbet/models/pipeline/$experiment_name
 dataset_name=$(basename $dataset_dir)
 simple_trajectory_dataset_name=$(basename $simple_trajectory_dataset_dir)
+output_dir=$experiment_dir/models_$data_config
 SERVER_PID=""
 start_server() {
   /home/innovation-hacking/luebbet/venvs/combined_robots_luebbet/bin/python \
@@ -42,7 +43,6 @@ trap stop_server EXIT INT TERM
 mkdir -p $experiment_dir
 mkdir -p "$experiment_dir/data_visualization"
 cp "$dataset_dir"/*.png "$experiment_dir"/data_visualization/
-output_dir=$experiment_dir/models_$data_config
 /home/innovation-hacking/luebbet/venvs/combined_robots_luebbet/bin/python /home/innovation-hacking/luebbet/dev/Isaac-GR00T/scripts/gr00t_finetune.py \
     --dataset-path $dataset_dir/lerobot_luebbet_$dataset_name \
     --output-dir $output_dir \
@@ -58,7 +58,6 @@ output_dir=$experiment_dir/models_$data_config
     --report-to tensorboard \
     --save-steps $save_steps
 
-output_dir=$experiment_dir/models_$data_config
 echo "Looking for checkpoints in: $output_dir"
 
 for checkpoint_dir in "$output_dir"/checkpoint*/; do
