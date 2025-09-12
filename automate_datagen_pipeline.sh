@@ -1,7 +1,11 @@
 dataset_yaml_paths=(
     /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/simple_trajectory.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/cheat_dataset_200.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/base_dataset_30.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/base_dataset_100.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/base_dataset_300.yaml
 )
-parallel_envs=8
+parallel_envs=16
 for dataset_yaml_path in "${dataset_yaml_paths[@]}"; do
     dataset_name=$(basename $dataset_yaml_path .yaml)
     working_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/$dataset_name

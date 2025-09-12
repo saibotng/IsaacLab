@@ -1,5 +1,5 @@
 set -euo pipefail
-experiment_name=original_architecture_cheat_dataset_baseline
+experiment_name=per_mod_tokenizer_cheat_dataset
 dataset_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/cheat_dataset_200/
 simple_trajectory_dataset_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/simple_trajectory/
 data_config="tng_ur5_AbsJointAndAbsTCPState_DeltaJointAction_2Cams"
@@ -56,7 +56,8 @@ cp "$dataset_dir"/*.png "$experiment_dir"/data_visualization/
     --tune-projector \
     --tune-diffusion-model \
     --report-to tensorboard \
-    --save-steps $save_steps
+    --save-steps $save_steps \
+    --train-modality-tokenizer
 
 echo "Looking for checkpoints in: $output_dir"
 
@@ -71,16 +72,28 @@ for checkpoint_dir in "$output_dir"/checkpoint*/; do
         --data_config $data_config \
         --video_backend torchvision_av \
         --modality_keys delta_robot_arm delta_gripper \
-        --save_plot_path $checkpoint_dir/plot \
+        --save_plot_path $checkpoint_dir/plot_ood \
+        --trajs 1
+        /home/innovation-hacking/luebbet/venvs/combined_robots_luebbet/bin/python /home/innovation-hacking/luebbet/dev/Isaac-GR00T/scripts/eval_policy.py \
+        --plot \
+        --dataset-path $dataset_dir/lerobot_luebbet_$dataset_name \
+        --model_path $checkpoint_dir \
+        --embodiment_tag new_embodiment \
+        --data_config $data_config \
+        --video_backend torchvision_av \
+        --modality_keys delta_robot_arm delta_gripper \
+        --save_plot_path $checkpoint_dir/plot_id \
         --trajs 1
     fi
 done
 
-last_checkpoint_dir=$(ls -td "$output_dir"/checkpoint*/ | head -n 1)
+
+last_checkpoint_dir=$(ls -d "$output_dir"/checkpoint-* | sort -V | tail -n 1)
+last_checkpoint_name=$(basename "$last_checkpoint_dir")
 for benchmark_yaml_path in "${benchmarks[@]}"; do
     benchmark_name=$(basename $benchmark_yaml_path .yaml)
     unique_benchmark_name=${benchmark_name}_from_${experiment_name}
-    bench_dir=$experiment_dir/eval_${benchmark_name}
+    bench_dir=$experiment_dir/eval_${benchmark_name}_from_${last_checkpoint_name}
     mkdir -p $bench_dir
     echo "Evaluating benchmark: $benchmark_name using checkpoint: $last_checkpoint_dir"
     echo "Saving results to: $bench_dir"

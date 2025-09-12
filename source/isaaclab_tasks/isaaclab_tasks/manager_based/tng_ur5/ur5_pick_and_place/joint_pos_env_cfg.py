@@ -62,7 +62,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 "rgb",
             ],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=24.0,
+                focal_length=30.0,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
                 clipping_range=(0.1, 1.0e5)
@@ -83,7 +83,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 "rgb",
             ],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=24.0,
+                focal_length=25.0,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
                 clipping_range=(0.1, 1.0e5)
@@ -168,5 +168,5 @@ class UR5CubePickAndPlaceEnvCfg_PLAY(UR5CubePickAndPlaceEnvCfg):
         self.scene.robot = UR5_INFERENCE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.num_envs = 1
         self.scene.env_spacing = 5
-        self.episode_length_s = 5.0
+        self.episode_length_s = 40.0
 

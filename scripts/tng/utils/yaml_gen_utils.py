@@ -26,6 +26,7 @@ class CameraPose(Enum):
     CAMERA_FRONT_POSE = Pose(pos=[1.5, 0.0, 0.8], rpy=[0.0, 55.0, 90.0])
     CAMERA_SIDE_POSE = Pose(pos=[0.5, 0.9, 0.5], rpy=[-60, 0.0, 180.0])
     CAMERA_WRIST_POSE = Pose(pos=[0.0, -0.11, 0.035], rpy=[151.0, 0.0, 0.0]) 
+    CAMERA_SHOULDER_POSE = Pose(pos=[0.2, 0.5, 1.1], rpy=[-23.0, -14.0, -95.0])
 
 
     @property
