@@ -6,14 +6,15 @@ from collections import deque
 DELTA_ACTIONS = True
 SNAP_GRIPPER_ACTIONS = True
 GRIPPER_SNAP_THRESHOLD = 0.015
-ENFORCE_GRIPPER_DELTA = 0.001
+ENFORCE_GRIPPER_DELTA = 0.0015
 ARM_TARGET_TOL = 0.003
 GRIPPER_TARGET_TOL = 0.0001
 
 
 def maybe_snap_gripper_actions(gripper_actions):
     if SNAP_GRIPPER_ACTIONS:
-        return [x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions]
+        #instead of returning a list return a numpy array
+        return np.array([x + ENFORCE_GRIPPER_DELTA if x > GRIPPER_SNAP_THRESHOLD else x for x in gripper_actions])
     return gripper_actions
 
 def convert_raw_abs_action_to_action_chunk(action) -> torch.Tensor:
@@ -36,7 +37,7 @@ def convert_raw_delta_action_to_action_chunk(action, observation) -> torch.Tenso
 
     gripper_actions = maybe_snap_gripper_actions(gripper_actions)
 
-    gripper_arr = np.stack([gripper_actions, gripper_actions], axis=1)
+    gripper_arr = np.stack([gripper_actions.squeeze(), gripper_actions.squeeze()], axis=1)
 
     action_arr = np.concatenate([arm_actions, gripper_arr], axis=1)
     action_chunk = torch.from_numpy(action_arr).to(device='cuda')

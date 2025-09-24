@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import zmq
+import msgpack
+import numpy as np
+import io
+import json
 
 from pydantic import BaseModel
 
@@ -23,39 +27,36 @@ class ModalityConfig(BaseModel):
     """The keys to load for the modality in the dataset."""
 
 
-class BasePolicy(ABC):
-    @abstractmethod
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Abstract method to get the action for a given state.
 
-        Args:
-            observations: The observations from the environment.
 
-        Returns:
-            The action to take in the environment in dictionary format.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        """
-        Return the modality config of the policy.
-        """
-        raise NotImplementedError
-
-class TorchSerializer:
+    
+class MsgSerializer:
     @staticmethod
     def to_bytes(data: dict) -> bytes:
-        buffer = BytesIO()
-        torch.save(data, buffer)
-        return buffer.getvalue()
+        return msgpack.packb(data, default=MsgSerializer.encode_custom_classes)
 
     @staticmethod
     def from_bytes(data: bytes) -> dict:
-        buffer = BytesIO(data)
-        obj = torch.load(buffer, weights_only=False)
+        return msgpack.unpackb(data, object_hook=MsgSerializer.decode_custom_classes)
+
+    @staticmethod
+    def decode_custom_classes(obj):
+        if "__ModalityConfig_class__" in obj:
+            obj = ModalityConfig(**json.loads(obj["as_json"]))
+        if "__ndarray_class__" in obj:
+            obj = np.load(io.BytesIO(obj["as_npy"]), allow_pickle=False)
         return obj
+
+    @staticmethod
+    def encode_custom_classes(obj):
+        if isinstance(obj, ModalityConfig):
+            return {"__ModalityConfig_class__": True, "as_json": obj.model_dump_json()}
+        if isinstance(obj, np.ndarray):
+            output = io.BytesIO()
+            np.save(output, obj, allow_pickle=False)
+            return {"__ndarray_class__": True, "as_npy": output.getvalue()}
+        return obj
+
     
 class BaseInferenceClient:
     def __init__(
@@ -108,9 +109,9 @@ class BaseInferenceClient:
         if self.api_token:
             request["api_token"] = self.api_token
 
-        self.socket.send(TorchSerializer.to_bytes(request))
+        self.socket.send(MsgSerializer.to_bytes(request))
         message = self.socket.recv()
-        response = TorchSerializer.from_bytes(message)
+        response = MsgSerializer.from_bytes(message)
 
         if "error" in response:
             raise RuntimeError(f"Server error: {response['error']}")
@@ -121,16 +122,15 @@ class BaseInferenceClient:
         self.socket.close()
         self.context.term()
 
-class Gr00tInferenceClient(BaseInferenceClient, BasePolicy):
+class Gr00tInferenceClient(BaseInferenceClient):
     """
     Client for communicating with the RealRobotServer
     """
 
-    def __init__(self, host: str = "localhost", port: int = 5555, api_token: str = None):
-        super().__init__(host=host, port=port, api_token=api_token)
-
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get the action from the server.
+        The exact definition of the observations is defined
+        by the policy, which contains the modalities configuration.
+        """
         return self.call_endpoint("get_action", observations)
-
-    def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        return self.call_endpoint("get_modality_config", requires_input=False)
