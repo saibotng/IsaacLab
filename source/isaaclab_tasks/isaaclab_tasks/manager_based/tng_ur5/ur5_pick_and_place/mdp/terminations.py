@@ -29,7 +29,7 @@ def object_reached_goal_and_last_state_reached(
 ) -> torch.Tensor:
 
     object_at_goal = object_reached_goal(env, target_cfg=target_cfg, object_cfg=object_cfg)
-    last_state_reached = env.extras["state"] == 9
+    last_state_reached = env.extras["state"] == 100
     done = object_at_goal & last_state_reached
     if done.sum() > 0:
         print(f"Object reached goal and last state reached: IDs {done.nonzero(as_tuple=False).squeeze(-1).tolist()} envs out of {env.scene.num_envs}.")
