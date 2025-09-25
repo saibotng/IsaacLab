@@ -15,5 +15,8 @@ def patch_env_config_for_configuration_scheduling(env_cfg, yaml_path, mode):
     }
 
 def patch_env_recorder_dir_config(env_cfg, recorder_dir):
+    if recorder_dir == "NoRecording":
+        env_cfg.recorders = None
+        return
     env_cfg.recorders.dataset_export_dir_path = recorder_dir
     env_cfg.recorders.dataset_filename = "datagen_recordings"

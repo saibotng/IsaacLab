@@ -19,6 +19,7 @@ parser.add_argument("--disable_fabric", action="store_true", help="Disable Fabri
 parser.add_argument("--from_yaml", type=str, default=None, help="Path to the benchmark YAML file.")
 parser.add_argument("--blackwell", action="store_true", help="Enable this when using a RTX 50xx GPU")
 parser.add_argument("--recorder_dir", type=str, default=None, help="Directory to save the recordings. If not specified, recordings will be saved in recording dir with timestamp.")
+parser.add_argument("--log_dir", type=str, default=None, help="Directory to save the logs.")
 
 temp_args, _ = parser.parse_known_args()
 
@@ -119,7 +120,7 @@ def main(argv: list[str] | None = None) -> None:
                             overall_success_rate = success_counter / done_counter if done_counter > 0 else 0.0
                             print(f"Overall success rate: {overall_success_rate*100:.1f}% ({success_counter} / {done_counter})")
                             print("All cases processed, exiting.")
-                            scheduler.finalize_and_store_results(output_dir=args.recorder_dir)
+                            scheduler.finalize_and_store_results(output_dir=args.log_dir)
                             break 
 
 
