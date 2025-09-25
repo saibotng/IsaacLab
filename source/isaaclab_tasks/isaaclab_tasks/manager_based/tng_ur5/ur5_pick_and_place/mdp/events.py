@@ -255,7 +255,7 @@ def set_distractor_poses(
 ):
     distractor_asset: RigidObjectCollection = env.scene[distractor_collection_asset_cfg.name]
     for i, pose in enumerate(pose_list):
-        pose_tensor = torch.tensor([pose_list[i]], device=env.device)
+        pose_tensor = torch.tensor([pose], device=env.device)
         positions = pose_tensor[:, 0:3] + env.scene.env_origins[env_id, 0:3] + root_pose[0, 0:3]
         delta_orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
         orientations = math_utils.quat_mul(delta_orientations, root_pose[0, 3:7].unsqueeze(0))
