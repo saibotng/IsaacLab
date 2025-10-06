@@ -5,7 +5,7 @@ from typing import List
 import yaml
 import numpy as np
 import random
-from yaml_gen_utils import build_pairs, grid_points, BenchCase, Pose, RPY_ZERO, sample_yaw_angles_for_poses, sample_robot_starting_pose_offsets, sample_table_offset, PROMPT_TEMPLATE, CameraPose
+from yaml_gen_utils import build_pairs, grid_points, BenchCase, Pose, RPY_ZERO, sample_yaw_angles_for_poses, sample_robot_starting_pose_offsets, sample_table_offset, PROMPT_TEMPLATE, CameraPose, gen_distractor_positions
 from colors import Color
 
 #TODO: a lot of duplicate code. Improve that
@@ -29,6 +29,7 @@ def build_cases(dim: float,
                 camera_secondary: str, 
                 camera_wrist: str, 
                 randomize_camera_poses: bool, 
+                distractors: bool,
                 seed: int) -> List[BenchCase]:
     test_cases: List[BenchCase] = []
 
@@ -69,6 +70,31 @@ def build_cases(dim: float,
             case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
             case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
 
+
+        if distractors:
+            num_object_distractors = random.randint(0,3)
+            num_target_distractors = random.randint(0,3)
+            distractor_positions = gen_distractor_positions(num_object_distractors + num_target_distractors, [case.object, case.target], threshold=threshold, dim=dim)
+            distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)])
+            object_distractors = []
+            target_distractors = []
+            for i in range(num_object_distractors):
+                distractor_pose = Pose(pos=[distractor_positions[i][0], distractor_positions[i][1], 0.0], rpy=RPY_ZERO.copy())
+                if objects_yaw_randomization_range > 0.0:
+                    distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
+                object_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i].rgb})
+
+            for i in range(num_target_distractors):
+                distractor_pose = Pose(pos=[distractor_positions[i + num_object_distractors][0], distractor_positions[i + num_object_distractors][1], 0.0], rpy=RPY_ZERO.copy())
+                if objects_yaw_randomization_range > 0.0:
+                    distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
+                target_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i + num_object_distractors].rgb})
+
+            case.distractors = {
+                "objects": object_distractors,
+                "targets": target_distractors
+            }
+
         test_cases.append(case)
 
     # Fill IDs with zero padding
@@ -93,6 +119,7 @@ def build_yaml(name: str,
                camera_secondary: str, 
                camera_wrist: str, 
                randomize_camera_poses: bool, 
+               distractors: bool,
                seed: int,
                metadata: dict):
     # Idle case kept (you can adjust the coordinates here if you prefer)
@@ -120,9 +147,10 @@ def build_yaml(name: str,
                         camera_secondary, 
                         camera_wrist, 
                         randomize_camera_poses, 
+                        distractors,
                         seed)
     for c in cases:
-        doc["test_cases"].append({
+        case_dict = {
             "id": c.id,
             "object": asdict(c.object),
             "target": asdict(c.target),
@@ -135,7 +163,10 @@ def build_yaml(name: str,
             "camera_pose_main": asdict(c.camera_pose_main),
             "camera_pose_secondary": asdict(c.camera_pose_secondary),
             "camera_pose_wrist": asdict(c.camera_pose_wrist),
-        })
+        }
+        if c.distractors is not None:
+            case_dict["distractors"] = c.distractors
+        doc["test_cases"].append(case_dict)
     return doc
 
 
@@ -156,6 +187,7 @@ def main():
     ap.add_argument("--camera_secondary", type=str, default="CAMERA_SIDE_POSE", help="Camera pose for secondary view. Options: CAMERA_FRONT_POSE, CAMERA_SIDE_POSE, CAMERA_WRIST_POSE")
     ap.add_argument("--camera_wrist", type=str, default="CAMERA_WRIST_POSE", help="Camera pose for wrist view. Options: CAMERA_FRONT_POSE, CAMERA_SIDE_POSE, CAMERA_WRIST_POSE")
     ap.add_argument("--randomize_camera_poses", action="store_true", help="If set, randomize camera poses")
+    ap.add_argument("--distractors", action="store_true", help="If set, add distractor objects and targets.")
     args = ap.parse_args()
 
     if args.seed is not None:
@@ -181,6 +213,7 @@ def main():
                      args.camera_secondary,
                      args.camera_wrist,
                      args.randomize_camera_poses,
+                     args.distractors,
                      args.seed,
                      metadata)
     with open(args.out_dir + args.name + ".yaml", "w", encoding="utf-8") as f:

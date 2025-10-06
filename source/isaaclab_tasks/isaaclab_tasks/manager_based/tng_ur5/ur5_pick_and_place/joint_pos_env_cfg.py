@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.assets import RigidObjectCfg, DeformableObjectCfg
+from isaaclab.assets import RigidObjectCfg, DeformableObjectCfg, RigidObjectCollectionCfg
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg, DeformableBodyPropertiesCfg
@@ -14,7 +14,7 @@ import isaacsim.core.utils.prims as prim_utils
 import isaaclab.sim as sim_utils
 
 from . import mdp
-from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference, TABLE_OFFSET
+from .pick_and_place_env_cfg import PickAndPlaceEnvCfg, RecorderCfg_Inference, TerminationsCfg_Inference, EventCfg_Inference, TABLE_OFFSET, TABLE_HEIGHT
 
 ##
 # Pre-defined configs
@@ -124,6 +124,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.03], rot=[0, -0.707, 0.707, 0]),
         )
 
+
         self.scene.target_object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Target",
             spawn=sim_utils.CuboidCfg(
@@ -133,8 +134,46 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0), metallic=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, TABLE_OFFSET + 0.03], rot=[0, -0.707, 0.707, 0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0, TABLE_OFFSET + 0.03), rot=(0, -0.707, 0.707, 0)),
         )
+
+        # Create distractor objects using RigidObjectCollectionCfg
+        distractor_objects_dict = {}
+        for i in range(3):
+            distractor_objects_dict[f"distractor_object_{i+1}"] = RigidObjectCfg(
+                prim_path="{ENV_REGEX_NS}/DistractorObject" + str(i + 1),
+                spawn=sim_utils.CuboidCfg(
+                    size=(CUBE_BASE_SCALE, CUBE_BASE_SCALE, CUBE_BASE_SCALE),
+                    rigid_props=RigidBodyPropertiesCfg(
+                        disable_gravity=False,
+                    ),
+                    mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
+                    collision_props=sim_utils.CollisionPropertiesCfg(),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.5, 0.5), metallic=0.2),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0 + i * 0.1, TABLE_OFFSET - TABLE_HEIGHT + 0.03), rot=(0, -0.707, 0.707, 0)),
+            )
+
+        self.scene.distractor_objects = RigidObjectCollectionCfg(rigid_objects=distractor_objects_dict)
+
+        # Create distractor targets using RigidObjectCollectionCfg
+        distractor_targets_dict = {}
+        for i in range(3):
+            distractor_targets_dict[f"distractor_target_{i+1}"] = RigidObjectCfg(
+                prim_path="{ENV_REGEX_NS}/DistractorTarget" + str(i + 1),
+                spawn=sim_utils.CuboidCfg(
+                    size=(0.07, 0.07, 0.01),
+                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                        disable_gravity=False,
+                    ),
+                    mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+                    collision_props=sim_utils.CollisionPropertiesCfg(),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.5, 0.5), metallic=0.2),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(pos=(0.6, 0 + i * 0.1, TABLE_OFFSET - TABLE_HEIGHT + 0.03), rot=(0, -0.707, 0.707, 0)),
+            )
+
+        self.scene.distractor_targets = RigidObjectCollectionCfg(rigid_objects=distractor_targets_dict)
 
         # Listens to the required transforms
         marker_cfg = FRAME_MARKER_CFG.copy()
@@ -149,7 +188,7 @@ class UR5CubePickAndPlaceEnvCfg(PickAndPlaceEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/wrist_3_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=[0.0, 0.0, 0.0],
+                        pos=(0.0, 0.0, 0.0),
                     ),
                 ),
             ],

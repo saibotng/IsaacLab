@@ -6,7 +6,7 @@
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg, RigidObjectCollectionCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -32,6 +32,7 @@ from . import mdp
 import os
 from dotenv import load_dotenv
 from math import pi
+from pathlib import Path
 
 load_dotenv()  # loads variables from .env into os.environ
 
@@ -39,6 +40,10 @@ DATASET_BASE_DIR = os.getenv("DATASET_BASE_DIR")
 TABLE_SCALING_FACTOR = 1.7
 TABLE_HEIGHT = 0.4165 * TABLE_SCALING_FACTOR
 TABLE_OFFSET = -0.08
+
+# Get the absolute path to the tng_assets directory
+CURRENT_DIR = Path(__file__).parent
+TNG_ASSETS_DIR = CURRENT_DIR.parent / "tng_assets"
 
 DEFAULT_PROMPT = "Pick up the blue cube and place it on the black platform."
 ##
@@ -62,6 +67,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     target_object: RigidObjectCfg | DeformableObjectCfg = MISSING  # for pick and place
 
+    distractor_objects: list[RigidObjectCfg | DeformableObjectCfg] | RigidObjectCollectionCfg | None = None
+
+    distractor_targets: list[RigidObjectCfg | DeformableObjectCfg] | RigidObjectCollectionCfg | None = None
+
     # Camera
     camera_global_main: CameraCfg = MISSING
 
@@ -80,7 +89,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Table",                      # unique per-env
         init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0.0, TABLE_OFFSET - TABLE_HEIGHT], rot=[0.0 , 0, 0, 1.0]),
         spawn=UsdFileCfg(
-            usd_path="/home/innovation-hacking/luebbet/dev/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/tng_ur5/tng_assets/Collected_willowbench/willowbench.usd",
+            usd_path=str(TNG_ASSETS_DIR / "Collected_willowbench" / "willowbench.usd"),
             variants={"PhysicsVariant": "RigidBody"},
             scale=(TABLE_SCALING_FACTOR, 1.0, TABLE_SCALING_FACTOR),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -130,7 +139,7 @@ class ActionsCfg:
 class EventCfg_SM:
     """Configuration for events."""
 
-    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    reset_all = EventTerm(func=mdp.reset_all_assets_to_default, mode="reset")
 
     reset_env = EventTerm(
         func=mdp.reset_env_random,
@@ -151,7 +160,7 @@ class EventCfg_SM:
 @configclass
 class EventCfg_Inference:
     """Configuration for events."""
-    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    reset_all = EventTerm(func=mdp.reset_all_assets_to_default, mode="reset")
 
     reset_env = EventTerm(
         func=mdp.reset_env_random,
@@ -388,7 +397,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 5
-        self.episode_length_s = 20.0
+        self.episode_length_s = 30.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation

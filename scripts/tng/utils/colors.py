@@ -15,14 +15,14 @@ class Color(Enum):
     WHITE      = (1.0, 1.0, 1.0)
     RED         = rgb_from_255((178, 0,   0))
     PINK        = rgb_from_255((255, 51, 153))
-    PURPLE      = rgb_from_255((85,  0, 114))
+    PURPLE      = rgb_from_255((50,  0, 100))
     BLUE       = rgb_from_255((0, 0, 150))
     CYAN       = rgb_from_255((0, 210, 210))
-    TEAL        = rgb_from_255((0,  60, 60))
+    TEAL        = rgb_from_255((0,  40, 40))
     GREEN       = rgb_from_255((0,  40,   0))
     LIME        = rgb_from_255((0, 255,  0))
     YELLOW      = rgb_from_255((255, 255, 0))
-    ORANGE      = rgb_from_255((210, 60,   0))
+    ORANGE      = rgb_from_255((200, 50,   0))
     BROWN       = rgb_from_255((50,  22, 17))
     GREY        = rgb_from_255((50,  50,  50))
 
@@ -52,7 +52,15 @@ class Color(Enum):
 
         # Use global random state since seed is already set in calling scripts
         return random.sample(pool, n)
-    
+
+    @classmethod
+    def from_rgb(cls, rgb: RGB) -> "Color":
+        """Get the Color enum member corresponding to an RGB value."""
+        for color in cls:
+            if color.rgb == rgb:
+                return color
+        raise ValueError(f"No color found for RGB value {rgb}")
+
     @property
     def pretty(self) -> str:
         """Readable name, e.g. 'Deep Purple' for Color.DEEP_PURPLE."""

@@ -87,6 +87,7 @@ class Case:
     camera_pose_main: Pose = CameraPose.CAMERA_FRONT_POSE.pose
     camera_pose_secondary: Pose = CameraPose.CAMERA_SIDE_POSE.pose
     camera_pose_wrist: Pose = CameraPose.CAMERA_WRIST_POSE.pose
+    distractors: Optional[dict] = None
 
 
 @dataclass
@@ -154,6 +155,25 @@ def gen_random_pairs(dim: float, n: int, fixed_target: bool, threshold: float, m
                 "Try reducing --threshold, increasing --dim, or decreasing --num-episodes."
             )
     return pairs
+
+def gen_distractor_positions(num_distractors: int, existing_poses: List[Pose], threshold: float, dim: float, max_trials_per_distractor: int = 1000) -> List[Tuple[float, float]]:
+    """Generate positions for distractor objects ensuring they are not too close to the object or target."""
+    existing_xy = [(p.pos[0], p.pos[1]) for p in existing_poses]
+    distractor_positions: List[Tuple[float, float]] = []
+    for _ in range(num_distractors):
+        ok = False
+        for _trial in range(max_trials_per_distractor):
+            pos = sample_point(dim)
+            if all(dist_xy(pos, existing) >= threshold for existing in (existing_xy + distractor_positions)):
+                distractor_positions.append(pos)
+                ok = True
+                break
+        if not ok:
+            raise RuntimeError(
+                "Failed to sample a valid distractor position within the trial limit. "
+                "Try reducing --distractor-threshold, increasing --dim, or decreasing --num-distractors."
+            )
+    return distractor_positions
 
 def get_corners_with_margin(dim: float, relative_margin: float) -> List[Tuple[float, float]]:
     # Order chosen to match your example:
