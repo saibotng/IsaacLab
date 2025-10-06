@@ -9,7 +9,7 @@ from typing import List, Tuple
 import yaml
 import numpy as np
 
-#TODO: a lot of duplicate code. Improve that
+#TODO: a lot of duplicate code. Improve on that
 class NoAliasDumper(yaml.SafeDumper):
     """YAML dumper that prevents the use of anchors and aliases."""
     def ignore_aliases(self, data):
@@ -97,13 +97,13 @@ def build_cases(dim: float,
             }
 
         test_cases.append(case)
-
     if calibration_episodes:
         corners = get_corners_with_margin(dim, relative_margin=CALIBRATION_MARGIN)
         if table_height_randomization_range > 0.0:
-            calibration_heights = [-table_height_randomization_range*CALIBRATION_MARGIN, table_height_randomization_range*CALIBRATION_MARGIN]
+            calibration_heights = [-table_height_randomization_range*(1+CALIBRATION_MARGIN), table_height_randomization_range*(1+CALIBRATION_MARGIN)]
         else:
             calibration_heights = [0.0]
+
         for z in calibration_heights:
             for (ox, oy) in corners:
                 for (tx, ty) in corners:
@@ -123,7 +123,7 @@ def build_cases(dim: float,
                         camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
                     )
 
-                    case.table_offset.pos[2] = z
+                    case.table_offset = Pose(pos=[0.0, 0.0, z], rpy=RPY_ZERO.copy())
 
                     if joint_randomization_range > 0.0: 
                         case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
@@ -141,46 +141,31 @@ def build_cases(dim: float,
                         case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
                         case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
 
-                    
+                    if distractors:
+                        num_object_distractors = random.randint(0,3)
+                        num_target_distractors = random.randint(0,3)
+                        distractor_positions = gen_distractor_positions(num_object_distractors + num_target_distractors, [case.object, case.target], threshold=threshold, dim=dim)
+                        distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)])
+                        object_distractors = []
+                        target_distractors = []
+                        for i in range(num_object_distractors):
+                            distractor_pose = Pose(pos=[distractor_positions[i][0], distractor_positions[i][1], 0.0], rpy=RPY_ZERO.copy())
+                            if objects_yaw_randomization_range > 0.0:
+                                distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
+                            object_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i].rgb})
+
+                        for i in range(num_target_distractors):
+                            distractor_pose = Pose(pos=[distractor_positions[i + num_object_distractors][0], distractor_positions[i + num_object_distractors][1], 0.0], rpy=RPY_ZERO.copy())
+                            if objects_yaw_randomization_range > 0.0:
+                                distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
+                            target_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i + num_object_distractors].rgb})
+
+                        case.distractors = {
+                            "objects": object_distractors,
+                            "targets": target_distractors
+                        }
+                        
                     test_cases.append(case)
-
-
-    # 3) Random episodes with distance threshold
-    pairs = gen_random_pairs(dim, num_random, fixed_target, threshold)
-    for (o, t) in pairs:
-        object_pose = Pose(pos=[o[0], o[1], 0.0], rpy=RPY_ZERO.copy())
-        target_pose = Pose(pos=[t[0], t[1], 0.0], rpy=RPY_ZERO.copy())
-        if objects_yaw_randomization_range > 0.0:
-            object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
-
-        case = DatasetCase(
-            id="",
-            object=object_pose,
-            target=target_pose,
-            camera_pose_main = CameraPose.get_camera_pose_from_string(camera_main),
-            camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
-            camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
-        )
-
-        if joint_randomization_range > 0.0: 
-            case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
-
-        if table_height_randomization_range > 0.0:
-            case.table_offset = sample_table_offset(max_z_offset=table_height_randomization_range)
-
-        if randomize_colors:
-            object_color = Color.sample(n=1)[0]
-            target_color = Color.sample(n=1, exclude=[object_color])[0]
-            case.object_rgb = object_color.rgb
-            case.target_rgb = target_color.rgb
-            case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
-
-        if randomize_camera_poses:
-            case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
-
-        test_cases.append(case)
 
     # Assign IDs with zero-padding
     total = len(test_cases)
