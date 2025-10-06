@@ -5,6 +5,7 @@ import math
 import torch
 from typing import TYPE_CHECKING
 from isaaclab.assets.rigid_object.rigid_object_cfg import RigidObjectCfg
+from isaaclab.assets.rigid_object_collection.rigid_object_collection import RigidObjectCollection
 import isaaclab.utils.math as math_utils
 from isaaclab.managers import SceneEntityCfg
 import random
@@ -17,11 +18,10 @@ from isaacsim.core.prims.impl.xform_prim import XFormPrim
 import numpy as np
 from isaaclab.envs.mdp.events import reset_root_state_uniform
 from isaaclab.assets import Articulation
-from pxr import UsdShade, UsdGeom, Sdf, Gf
+from pxr import UsdShade, UsdGeom, Sdf, Gf, UsdPhysics
 import isaaclab.sim as sim_utils
 import isaaclab.sensors.camera as camera_utils
 from scipy.spatial.transform import Rotation as R
-from pxr import UsdGeom
 
 
 if TYPE_CHECKING:
@@ -80,7 +80,9 @@ def reset_env_from_scheduler(
         robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         camera_global_main_cfg: SceneEntityCfg = SceneEntityCfg("camera_global_main"),
         camera_global_secondary_cfg: SceneEntityCfg = SceneEntityCfg("camera_global_secondary"),
-        camera_wrist_cfg: SceneEntityCfg = SceneEntityCfg("camera_wrist")
+        camera_wrist_cfg: SceneEntityCfg = SceneEntityCfg("camera_wrist"),
+        object_distractors_cfg: SceneEntityCfg = SceneEntityCfg("distractor_objects"),
+        target_distractors_cfg: SceneEntityCfg = SceneEntityCfg("distractor_targets"),
 ):
     if env.extras.get("scheduler") is None:
         scheduler.register_in_env(env)
@@ -105,7 +107,7 @@ def reset_env_from_scheduler(
             table_offset_pos, table_offset_rpy = case["table_offset"]["pos"], convert_deg_to_rad(case["table_offset"]["rpy"])
             set_rigid_object_poses(env, env_id, [table_asset_cfg], [table_offset_pos + table_offset_rpy])
         else:
-            table_offset_pos, table_offset_rpy = [0, 0, 0], [0, 0, 0]
+            table_offset_pos, table_offset_rpy = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
             print("[WARNING] Missing key in case definition: 'table_offset'. FALLING BACK TO DEFAULT")
 
         if "robot_joint_offsets" in case and "gripper_offset" in case:
@@ -128,25 +130,77 @@ def reset_env_from_scheduler(
                 joint_vel_default.view(1, -1).unsqueeze(0),
                 env_ids=torch.tensor([env_id], device=env.device),
                 joint_ids=robot_asset_cfg.joint_ids,
-    )
+            )
         else:
             print("[WARNING] Missing key in case definition: 'robot_joint_offsets' or 'gripper_offset'. FALLING BACK TO DEFAULT")
 
         if "object_rgb" in case:
             object_rgb = case["object_rgb"]
-            force_color_material_on_all_meshes(env, env_id, object_asset_cfg, rgb=object_rgb)
+            root_path = get_asset_root_prim_path(env, object_asset_cfg, env_id)
+            force_color_material_on_all_meshes(env, root_path, rgb=object_rgb)
         else:
             print("[WARNING] Missing key in case definition: 'object_rgb'. FALLING BACK TO DEFAULT")
 
         if "target_rgb" in case:
             target_rgb = case["target_rgb"]
-            force_color_material_on_all_meshes(env, env_id, target_asset_cfg, rgb=target_rgb)
+            root_path = get_asset_root_prim_path(env, target_asset_cfg, env_id)
+            force_color_material_on_all_meshes(env, root_path, rgb=target_rgb)
 
         obj_pos, obj_rpy = case["object"]["pos"], convert_deg_to_rad(case["object"]["rpy"])
         tgt_pos, tgt_rpy = case["target"]["pos"], convert_deg_to_rad(case["target"]["rpy"])
         object_pose = add_lists(obj_pos, table_offset_pos) + add_lists(obj_rpy, table_offset_rpy)
         target_pose = add_lists(tgt_pos, table_offset_pos) + add_lists(tgt_rpy, table_offset_rpy)
         set_rigid_object_poses(env, env_id, [object_asset_cfg, target_asset_cfg], [object_pose, target_pose])
+
+        if "distractors" in case:
+            colors_objects, poses_objects = get_distractor_colors_and_poses(case["distractors"]["objects"], table_offset_pos, table_offset_rpy)
+            colors_targets, poses_targets = get_distractor_colors_and_poses(case["distractors"]["targets"], table_offset_pos, table_offset_rpy)
+            root_asset_object = env.scene[object_asset_cfg.name]
+            root_asset_target = env.scene[target_asset_cfg.name]
+            root_pose_object = root_asset_object.data.default_root_state[[env_id]].clone()
+            root_pose_target = root_asset_target.data.default_root_state[[env_id]].clone()
+            set_distractor_poses(env, env_id, object_distractors_cfg, poses_objects, root_pose_object)
+            set_distractor_poses(env, env_id, target_distractors_cfg, poses_targets, root_pose_target)
+            set_distractor_colors(env, env_id, object_distractors_cfg, colors_objects)
+            set_distractor_colors(env, env_id, target_distractors_cfg, colors_targets)
+        else:
+            print("[INFO] No distractors in case definition. FALLING BACK TO DEFAULT")
+
+        # if env_id == 0:
+        #     paths = get_asset_collection_root_prim_paths(env, SceneEntityCfg("distractor_objects"), env_id)
+        #     root_asset = env.scene["object"]
+        #     root_pose = root_asset.data.default_root_state[[env_id]].clone()
+        #     set_distractor_poses(env, env_id, SceneEntityCfg("distractor_objects"), [[0.0,0.0,0.0,0.0,0.0,0.0]], root_pose)
+
+        # if env_id == 1:
+        #     paths = get_asset_collection_root_prim_paths(env, SceneEntityCfg("distractor_objects"), env_id)
+
+
+def set_distractor_colors(
+        env: ManagerBasedEnv,
+        env_id: torch.Tensor,
+        distractor_collection_cfg: SceneEntityCfg,
+        colors: list,
+):
+    distractor_paths = get_asset_collection_root_prim_paths(env, distractor_collection_cfg, env_id)
+    for i, color in enumerate(colors):
+        prim_path = distractor_paths[i]
+        force_color_material_on_all_meshes(env, prim_path, rgb=color)
+
+
+def get_distractor_colors_and_poses(
+    distractor_dict: dict,
+    table_offset_pos: list[float],
+    table_offset_rpy: list[float] 
+):
+    colors = []
+    poses = []
+    for distractor in distractor_dict:
+        pos = add_lists(distractor["pos"], table_offset_pos)
+        rpy = add_lists(convert_deg_to_rad(distractor["rpy"]), table_offset_rpy)
+        poses.append(pos + rpy)
+        colors.append(distractor["rgb"])
+    return colors, poses
 
 
 
@@ -191,6 +245,25 @@ def reset_env_random(
 def convert_deg_to_rad(deg: list[float]) -> list[float]:
     """Convert a list of angles in degrees to radians."""
     return [math.radians(angle) for angle in deg]
+
+def set_distractor_poses(
+        env: ManagerBasedEnv,
+        env_id: torch.Tensor,
+        distractor_collection_asset_cfg: SceneEntityCfg,
+        pose_list: list,
+        root_pose: torch.Tensor
+):
+    distractor_asset: RigidObjectCollection = env.scene[distractor_collection_asset_cfg.name]
+    for i, pose in enumerate(pose_list):
+        pose_tensor = torch.tensor([pose], device=env.device)
+        positions = pose_tensor[:, 0:3] + env.scene.env_origins[env_id, 0:3] + root_pose[0, 0:3]
+        delta_orientations = math_utils.quat_from_euler_xyz(pose_tensor[:, 3], pose_tensor[:, 4], pose_tensor[:, 5])
+        orientations = math_utils.quat_mul(delta_orientations, root_pose[0, 3:7].unsqueeze(0))
+        distractor_state = torch.cat([positions, orientations, torch.zeros(1, 6, device=env.device)], dim=-1)
+
+        distractor_asset.write_object_state_to_sim(
+            distractor_state, env_ids=torch.tensor([env_id], device=env.device), object_ids=torch.tensor([i], device=env.device)
+        )
 
 def set_rigid_object_poses(
         env: ManagerBasedEnv,
@@ -243,6 +316,14 @@ def sample_object_poses(
 
     return pose_list
 
+def get_asset_collection_root_prim_paths(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg, env_id: int) -> list[str]:
+    """Return the concrete prim paths for this asset collection in this env."""
+    asset_collection = env.scene[asset_cfg.name]
+    # Isaac Lab assets commonly expose per-env prim paths as a list
+    env_unspecific_paths = asset_collection._prim_paths
+    env_specific_paths = [p.replace("env_.*", f"env_{env_id}").replace("env_*", f"env_{env_id}") for p in env_unspecific_paths]
+    return env_specific_paths
+
 def get_asset_root_prim_path(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg, env_id: int) -> str:
     """Return the concrete prim path for this asset in this env."""
     asset = env.scene[asset_cfg.name]
@@ -282,11 +363,11 @@ def iter_meshes_under(root_prim):
             yield p
         stack.extend(p.GetChildren())
 
-def force_color_material_on_all_meshes(env, env_id: int, asset_cfg, rgb,
+def force_color_material_on_all_meshes(env, root_path, rgb,
                                         unbind_existing: bool = True):
 
     stage = env.scene.stage  
-    root_path = get_asset_root_prim_path(env, asset_cfg, env_id)
+    #root_path = get_asset_root_prim_path(env, asset_cfg, env_id)
     root_prim = stage.GetPrimAtPath(root_path)
 
     mat_name = f"{root_path}/geometry/material"
@@ -302,3 +383,42 @@ def force_color_material_on_all_meshes(env, env_id: int, asset_cfg, rgb,
         gprim = UsdGeom.Gprim(mesh)
         gprim.GetDisplayColorAttr().Set([Gf.Vec3f(*rgb)])
         gprim.GetDisplayOpacityAttr().Set([1.0])
+
+
+def reset_all_assets_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
+    """Reset the scene to the default state specified in the scene configuration."""
+    # rigid object collections (not supported in built-in IsaacLab function, so we add it here)
+    for rigid_object_collection in env.scene.rigid_object_collections.values():
+        default_object_state = rigid_object_collection.data.default_object_state[env_ids].clone()
+        # Add environment origins to the position (for collections, this needs to be done manually)
+        default_object_state[..., :3] += env.scene.env_origins[env_ids].unsqueeze(1)
+        rigid_object_collection.write_object_state_to_sim(default_object_state, env_ids=env_ids)
+
+    # rigid objects
+    for rigid_object in env.scene.rigid_objects.values():
+        # obtain default and deal with the offset for env origins
+        default_root_state = rigid_object.data.default_root_state[env_ids].clone()
+        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        # set into the physics simulation
+        rigid_object.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
+        rigid_object.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+    # articulations
+    for articulation_asset in env.scene.articulations.values():
+        # obtain default and deal with the offset for env origins
+        default_root_state = articulation_asset.data.default_root_state[env_ids].clone()
+        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        # set into the physics simulation
+        articulation_asset.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
+        articulation_asset.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+        # obtain default joint positions
+        default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
+        default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
+        # set into the physics simulation
+        articulation_asset.set_joint_position_target(default_joint_pos, env_ids=env_ids)
+        articulation_asset.set_joint_velocity_target(default_joint_vel, env_ids=env_ids)
+        articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
+    # deformable objects
+    for deformable_object in env.scene.deformable_objects.values():
+        # obtain default and set into the physics simulation
+        nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
+        deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
