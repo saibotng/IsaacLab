@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import List, Tuple
 import yaml
 import numpy as np
+
 #TODO: a lot of duplicate code. Improve that
 class NoAliasDumper(yaml.SafeDumper):
     """YAML dumper that prevents the use of anchors and aliases."""
@@ -36,6 +37,41 @@ def build_cases(dim: float,
                 seed: int) -> List[DatasetCase]:
 
     test_cases: List[DatasetCase] = []
+    pairs = gen_random_pairs(dim, num_random, fixed_target, threshold)
+    for (o, t) in pairs:
+        object_pose = Pose(pos=[o[0], o[1], 0.0], rpy=RPY_ZERO.copy())
+        target_pose = Pose(pos=[t[0], t[1], 0.0], rpy=RPY_ZERO.copy())
+        if objects_yaw_randomization_range > 0.0:
+            object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
+
+        case = DatasetCase(
+            id="",
+            object=object_pose,
+            target=target_pose,
+            camera_pose_main = CameraPose.get_camera_pose_from_string(camera_main),
+            camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
+            camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
+        )
+
+        if joint_randomization_range > 0.0: 
+            case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
+
+        if table_height_randomization_range > 0.0:
+            case.table_offset = sample_table_offset(max_z_offset=table_height_randomization_range)
+
+        if randomize_colors:
+            object_color = Color.sample(n=1)[0]
+            target_color = Color.sample(n=1, exclude=[object_color])[0]
+            case.object_rgb = object_color.rgb
+            case.target_rgb = target_color.rgb
+            case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
+
+        if randomize_camera_poses:
+            case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.5)
+            case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.5)
+            case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.5)
+
+        test_cases.append(case)
 
     if calibration_episodes:
         corners = get_corners_with_margin(dim, relative_margin=CALIBRATION_MARGIN)
@@ -83,44 +119,7 @@ def build_cases(dim: float,
                     
                     test_cases.append(case)
 
-
-    # 3) Random episodes with distance threshold
-    pairs = gen_random_pairs(dim, num_random, fixed_target, threshold)
-    for (o, t) in pairs:
-        object_pose = Pose(pos=[o[0], o[1], 0.0], rpy=RPY_ZERO.copy())
-        target_pose = Pose(pos=[t[0], t[1], 0.0], rpy=RPY_ZERO.copy())
-        if objects_yaw_randomization_range > 0.0:
-            object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
-
-        case = DatasetCase(
-            id="",
-            object=object_pose,
-            target=target_pose,
-            camera_pose_main = CameraPose.get_camera_pose_from_string(camera_main),
-            camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
-            camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
-        )
-
-        if joint_randomization_range > 0.0: 
-            case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
-
-        if table_height_randomization_range > 0.0:
-            case.table_offset = sample_table_offset(max_z_offset=table_height_randomization_range)
-
-        if randomize_colors:
-            object_color = Color.sample(n=1)[0]
-            target_color = Color.sample(n=1, exclude=[object_color])[0]
-            case.object_rgb = object_color.rgb
-            case.target_rgb = target_color.rgb
-            case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
-
-        if randomize_camera_poses:
-            case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
-
-        test_cases.append(case)
-
+    
     # Assign IDs with zero-padding
     total = len(test_cases)
     width = max(3, int(math.ceil(math.log10(max(1, total + 1)))))
