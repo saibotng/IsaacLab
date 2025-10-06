@@ -7,36 +7,49 @@ benchmarks=(
 )
 
 /home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
-    "dataset_size_10" \
-    "base_dataset_10" \
+    "kinematics_calibration" \
+    "kinematics_calibration" \
     "$data_config" \
     "$max_train_steps" \
     "$runs_per_benchmark" \
     "${benchmarks[@]}"
 
 /home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
-    "dataset_size_30" \
-    "base_dataset_30" \
+    "kinematics_increased_dim" \
+    "kinematics_increased_dim" \
     "$data_config" \
     "$max_train_steps" \
     "$runs_per_benchmark" \
     "${benchmarks[@]}"
 
 /home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
-    "dataset_size_100" \
-    "base_dataset_100" \
+    "kinematics_joints" \
+    "kinematics_joints" \
     "$data_config" \
     "$max_train_steps" \
     "$runs_per_benchmark" \
     "${benchmarks[@]}"
-
 
 /home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
-    "dataset_size_300" \
-    "base_dataset_300" \
+    "kinematics_table_height" \
+    "kinematics_table_height" \
     "$data_config" \
     "$max_train_steps" \
     "$runs_per_benchmark" \
     "${benchmarks[@]}"
 
+/home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
+    "kinematics_yaw" \
+    "kinematics_yaw" \
+    "$data_config" \
+    "$max_train_steps" \
+    "$runs_per_benchmark" \
+    "${benchmarks[@]}"
 
+/home/innovation-hacking/luebbet/dev/IsaacLab/automate_single_experiment.sh \
+    "kinematics_combined" \
+    "kinematics_combined" \
+    "$data_config" \
+    "$max_train_steps" \
+    "$runs_per_benchmark" \
+    "${benchmarks[@]}"
