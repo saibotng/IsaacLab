@@ -5,16 +5,22 @@ from typing import List
 import yaml
 import numpy as np
 import random
-from yaml_gen_utils import build_pairs, grid_points, BenchCase, Pose, RPY_ZERO, sample_yaw_angles_for_poses, sample_robot_starting_pose_offsets, sample_table_offset, PROMPT_TEMPLATE, CameraPose, gen_distractor_positions
+from yaml_gen_utils import (
+    build_pairs, 
+    grid_points,
+    BenchCase, 
+    Pose, 
+    RPY_ZERO, 
+    CameraPose, 
+    maybe_add_distractors, 
+    maybe_randomize_camera_poses, 
+    maybe_randomize_target_object_colors, 
+    maybe_randomize_joints, 
+    maybe_randomize_table_height, 
+    maybe_randomize_target_object_yaw_angles,
+    NoAliasDumper
+)
 from colors import Color
-
-#TODO: a lot of duplicate code. Improve that
-
-class NoAliasDumper(yaml.SafeDumper):
-    """YAML dumper that prevents the use of anchors and aliases."""
-    def ignore_aliases(self, data):
-        return True
-
 
 
 
@@ -31,18 +37,27 @@ def build_cases(dim: float,
                 randomize_camera_poses: bool, 
                 distractors: bool,
                 seed: int) -> List[BenchCase]:
+
+    base_seed = seed if seed is not None else random.randint(0, 2**32-1)
+    random.seed(base_seed)
+    np.random.seed(base_seed)
+
+    rng_pairs = random.Random(base_seed)
+    rng_joints = random.Random(base_seed + 1)
+    rng_table = random.Random(base_seed + 2)
+    rng_colors = random.Random(base_seed + 3)
+    rng_yaw = random.Random(base_seed + 4)
+    rng_camera = random.Random(base_seed + 5)
+    rng_distractors = random.Random(base_seed + 6)
+    rng_distractors_yaw = random.Random(base_seed + 7)
+
     test_cases: List[BenchCase] = []
-
     candidates = grid_points(dim, resolution)
-
-    pairs = build_pairs(candidates, threshold)
+    pairs = build_pairs(candidates, threshold, rng=rng_pairs)
 
     for (o, t) in pairs:
         object_pose = Pose(pos=[o[0], o[1], 0.0], rpy=RPY_ZERO.copy())
         target_pose = Pose(pos=[t[0], t[1], 0.0], rpy=RPY_ZERO.copy())
-        if objects_yaw_randomization_range > 0.0:
-            object_pose, target_pose = sample_yaw_angles_for_poses([object_pose, target_pose], objects_yaw_randomization_range)
-
         case = BenchCase(
             id="",
             object=object_pose,
@@ -51,50 +66,12 @@ def build_cases(dim: float,
             camera_pose_secondary = CameraPose.get_camera_pose_from_string(camera_secondary),
             camera_pose_wrist = CameraPose.get_camera_pose_from_string(camera_wrist),
         )
-
-        if joint_randomization_range > 0.0: 
-            case.robot_joint_offsets, case.gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range=joint_randomization_range)
-
-        if table_height_randomization_range > 0.0:
-            case.table_offset = sample_table_offset(max_z_offset=table_height_randomization_range)
-
-        if randomize_colors:
-            object_color = Color.sample(n=1)[0]
-            target_color = Color.sample(n=1, exclude=[object_color])[0]
-            case.object_rgb = object_color.rgb
-            case.target_rgb = target_color.rgb
-            case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
-
-        if randomize_camera_poses:
-            case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=0.05, rotation_jitter=2.0)
-            case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=0.01, rotation_jitter=1.0)
-
-
-        if distractors:
-            num_object_distractors = random.randint(0,3)
-            num_target_distractors = random.randint(0,3)
-            distractor_positions = gen_distractor_positions(num_object_distractors + num_target_distractors, [case.object, case.target], threshold=threshold, dim=dim)
-            distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)])
-            object_distractors = []
-            target_distractors = []
-            for i in range(num_object_distractors):
-                distractor_pose = Pose(pos=[distractor_positions[i][0], distractor_positions[i][1], 0.0], rpy=RPY_ZERO.copy())
-                if objects_yaw_randomization_range > 0.0:
-                    distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
-                object_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i].rgb})
-
-            for i in range(num_target_distractors):
-                distractor_pose = Pose(pos=[distractor_positions[i + num_object_distractors][0], distractor_positions[i + num_object_distractors][1], 0.0], rpy=RPY_ZERO.copy())
-                if objects_yaw_randomization_range > 0.0:
-                    distractor_pose = sample_yaw_angles_for_poses([distractor_pose], objects_yaw_randomization_range)[0]
-                target_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i + num_object_distractors].rgb})
-
-            case.distractors = {
-                "objects": object_distractors,
-                "targets": target_distractors
-            }
-
+        case = maybe_randomize_table_height(table_height_randomization_range > 0.0, case, table_height_randomization_range, rng_table)
+        case = maybe_randomize_target_object_yaw_angles(objects_yaw_randomization_range > 0.0, case, objects_yaw_randomization_range, rng_yaw)
+        case = maybe_randomize_joints(joint_randomization_range > 0.0, case, joint_randomization_range, rng_joints)
+        case = maybe_randomize_target_object_colors(randomize_colors, case, rng_colors)
+        case = maybe_randomize_camera_poses(randomize_camera_poses, case, rng_camera)
+        case = maybe_add_distractors(distractors, case, dim, threshold, objects_yaw_randomization_range, rng_distractors, rng_distractors_yaw)
         test_cases.append(case)
 
     # Fill IDs with zero padding
@@ -122,7 +99,6 @@ def build_yaml(name: str,
                distractors: bool,
                seed: int,
                metadata: dict):
-    # Idle case kept (you can adjust the coordinates here if you prefer)
     doc = {
         "name": name,
         "metadata": metadata,
@@ -167,6 +143,7 @@ def build_yaml(name: str,
         if c.distractors is not None:
             case_dict["distractors"] = c.distractors
         doc["test_cases"].append(case_dict)
+
     return doc
 
 
@@ -189,10 +166,6 @@ def main():
     ap.add_argument("--randomize_camera_poses", action="store_true", help="If set, randomize camera poses")
     ap.add_argument("--distractors", action="store_true", help="If set, add distractor objects and targets.")
     args = ap.parse_args()
-
-    if args.seed is not None:
-        random.seed(args.seed)
-        np.random.seed(args.seed)
 
     # Create metadata from all parsed arguments, excluding certain fields
     metadata = vars(args).copy()

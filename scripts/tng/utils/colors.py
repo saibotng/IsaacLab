@@ -38,6 +38,7 @@ class Color(Enum):
     def sample(
         cls,
         n: int,
+        rng: random.Random,
         *,
         exclude: Optional[List["Color"]] = None,
     ) -> List["Color"]:
@@ -51,7 +52,7 @@ class Color(Enum):
             )
 
         # Use global random state since seed is already set in calling scripts
-        return random.sample(pool, n)
+        return rng.sample(pool, n)
 
     @classmethod
     def from_rgb(cls, rgb: RGB) -> "Color":

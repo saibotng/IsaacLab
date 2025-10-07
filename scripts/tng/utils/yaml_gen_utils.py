@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from colors import Color
 from scipy.spatial.transform import Rotation as R
 from enum import Enum
+import yaml
 
 WEDGE_COUNT = 72     # angular wedges
 LEN_BINS    = 60
@@ -16,6 +17,10 @@ DEFAULT_TRAVEL_HEIGHT = 0.12
 RPY_ZERO = [0.0, 0.0, 0.0]
 MAX_GRIPPER_DISPLACEMENT = 0.038
 NUM_ARM_JOINTS = 6
+POSITION_JITTER_GLOBAL = 0.05
+POSITION_JITTER_WRIST = 0.01
+ROTATION_JITTER_GLOBAL = 2.5
+ROTATION_JITTER_WRIST = 1.5
 
 @dataclass
 class Pose:
@@ -47,24 +52,24 @@ class CameraPose(Enum):
         return cls[name].pose
     
     @classmethod
-    def apply_camera_pose_randomization(cls, base_pose: Pose, position_jitter: float, rotation_jitter: float) -> Pose:
+    def apply_camera_pose_randomization(cls, base_pose: Pose, position_jitter: float, rotation_jitter: float, rng: random.Random) -> Pose:
         """Apply random jitter to a given camera pose."""
         # Use global random state since seed is already set in calling scripts
         # Creating a new Random(seed) instance would produce identical results for each call
 
         # Apply position jitter
         jittered_pos = [
-            base_pose.pos[0] + random.uniform(-position_jitter, position_jitter),
-            base_pose.pos[1] + random.uniform(-position_jitter, position_jitter),
-            base_pose.pos[2] + random.uniform(-position_jitter, position_jitter),
+            base_pose.pos[0] + rng.uniform(-position_jitter, position_jitter),
+            base_pose.pos[1] + rng.uniform(-position_jitter, position_jitter),
+            base_pose.pos[2] + rng.uniform(-position_jitter, position_jitter),
         ]
 
         # Apply rotation jitter
         r = R.from_euler('xyz', base_pose.rpy, degrees=True)
         jitter_rot = R.from_euler('xyz', [
-            random.uniform(-rotation_jitter, rotation_jitter),
-            random.uniform(-rotation_jitter, rotation_jitter),
-            random.uniform(-rotation_jitter, rotation_jitter),
+            rng.uniform(-rotation_jitter, rotation_jitter),
+            rng.uniform(-rotation_jitter, rotation_jitter),
+            rng.uniform(-rotation_jitter, rotation_jitter),
         ], degrees=True)
         new_r = (jitter_rot * r).as_euler('xyz', degrees=True)
 
@@ -98,26 +103,26 @@ class BenchCase(Case):
 class DatasetCase(Case):
     travel_height: float = DEFAULT_TRAVEL_HEIGHT
 
-def sample_yaw_angles_for_poses(poses: List[Pose], yaw_range: float) -> List[Pose]:
+def sample_yaw_angles_for_poses(poses: List[Pose], yaw_range: float, rng: random.Random) -> List[Pose]:
     for p in poses:
-        yaw = random.uniform(-yaw_range, yaw_range)
+        yaw = rng.uniform(-yaw_range, yaw_range)
         p.rpy[2] = yaw
     return poses
 
-def sample_table_offset(max_z_offset: float) -> Pose:
+def sample_table_offset(max_z_offset: float, rng: random.Random) -> Pose:
     """Sample a random table offset within the given max_offset."""
-    tz = random.uniform(-max_z_offset, max_z_offset)
+    tz = rng.uniform(-max_z_offset, max_z_offset)
     return Pose(pos=[0.0, 0.0, tz], rpy=[0.0, 0.0, 0.0])
 
-def sample_robot_starting_pose_offsets(joint_randomization_range: float) -> Tuple[List[float], List[float]]:
+def sample_robot_starting_pose_offsets(joint_randomization_range: float, rng: random.Random) -> Tuple[List[float], List[float]]:
     joint_limits = [(-joint_randomization_range, joint_randomization_range)]*NUM_ARM_JOINTS
-    joint_positions = [random.uniform(lim[0], lim[1]) for lim in joint_limits]
-    gripper_position = [random.uniform(0.0, MAX_GRIPPER_DISPLACEMENT)]
+    joint_positions = [rng.uniform(lim[0], lim[1]) for lim in joint_limits]
+    gripper_position = [rng.uniform(0.0, MAX_GRIPPER_DISPLACEMENT)]
     return joint_positions, gripper_position
 
-def sample_point(dim: float) -> Tuple[float, float]:
+def sample_point(dim: float, rng: random.Random) -> Tuple[float, float]:
     """Uniform sample in the square [-dim, dim]^2."""
-    return (random.uniform(-dim, dim), random.uniform(-dim, dim))
+    return (rng.uniform(-dim, dim), rng.uniform(-dim, dim))
 
 def dist_xy(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     dx = a[0] - b[0]
@@ -125,7 +130,7 @@ def dist_xy(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(dx, dy)
 
 
-def gen_random_pairs(dim: float, n: int, fixed_target: bool, threshold: float, max_trials_per_episode: int = 10000) -> List[Tuple[Tuple[float,float], Tuple[float,float]]]:
+def gen_random_pairs(dim: float, n: int, fixed_target: bool, threshold: float, rng: random.Random, max_trials_per_episode: int = 10000) -> List[Tuple[Tuple[float,float], Tuple[float,float]]]:
     """
     Rejection-sample n episodes with object and target in [-dim, dim]^2 and
     distance(object, target) >= threshold. Raises RuntimeError if it can't
@@ -143,8 +148,8 @@ def gen_random_pairs(dim: float, n: int, fixed_target: bool, threshold: float, m
     for _ in range(n):
         ok = False
         for _trial in range(max_trials_per_episode):
-            o = sample_point(dim)
-            t = sample_point(dim) if not fixed_target else FIXED_TARGET_XY
+            o = sample_point(dim, rng)
+            t = sample_point(dim, rng) if not fixed_target else FIXED_TARGET_XY
             if dist_xy(o, t) >= threshold:
                 pairs.append((o, t))
                 ok = True
@@ -156,14 +161,14 @@ def gen_random_pairs(dim: float, n: int, fixed_target: bool, threshold: float, m
             )
     return pairs
 
-def gen_distractor_positions(num_distractors: int, existing_poses: List[Pose], threshold: float, dim: float, max_trials_per_distractor: int = 1000) -> List[Tuple[float, float]]:
+def gen_distractor_positions(num_distractors: int, existing_poses: List[Pose], threshold: float, dim: float, rng: random.Random, max_trials_per_distractor: int = 1000) -> List[Tuple[float, float]]:
     """Generate positions for distractor objects ensuring they are not too close to the object or target."""
     existing_xy = [(p.pos[0], p.pos[1]) for p in existing_poses]
     distractor_positions: List[Tuple[float, float]] = []
     for _ in range(num_distractors):
         ok = False
         for _trial in range(max_trials_per_distractor):
-            pos = sample_point(dim)
+            pos = sample_point(dim, rng)
             if all(dist_xy(pos, existing) >= threshold for existing in (existing_xy + distractor_positions)):
                 distractor_positions.append(pos)
                 ok = True
@@ -203,7 +208,7 @@ def grid_points(dim: float, r: int) -> np.ndarray:
     grid_points = [(x, y) for y in coords for x in coords]  # row-major (y outer for visual grouping)
     return np.array(grid_points, dtype=float)
 
-def build_pairs(candidates: np.ndarray, threshold: float) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+def build_pairs(candidates: np.ndarray, threshold: float, rng: random.Random) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
 
     N = candidates.shape[0]
     if N == 0:
@@ -248,7 +253,7 @@ def build_pairs(candidates: np.ndarray, threshold: float) -> List[Tuple[Tuple[fl
 
     # Shuffle within buckets, then interleave buckets round-robin to reduce bias
     for key in buckets:
-        random.shuffle(buckets[key])
+        rng.shuffle(buckets[key])
     keys = sorted(buckets.keys())  # deterministic bucket order; contents are shuffled
     interleaved: List[Tuple[int, int]] = []
     remaining = sum(len(v) for v in buckets.values())
@@ -306,3 +311,68 @@ def build_pairs(candidates: np.ndarray, threshold: float) -> List[Tuple[Tuple[fl
         pairs.append(((float(ox), float(oy)), (float(tx), float(ty))))
     return pairs
 
+def maybe_randomize_target_object_yaw_angles(randomize: bool, case: Case, yaw_range: float, rng: random.Random) -> Case:
+    if randomize:
+        object_pose, target_pose = sample_yaw_angles_for_poses([case.object, case.target], yaw_range, rng)
+        case.object = object_pose
+        case.target = target_pose   
+    return case
+
+def maybe_randomize_joints(randomize: bool, case: Case, joint_randomization_range: float, rng: random.Random) -> Case:
+    if randomize and joint_randomization_range > 1e-6:
+        joint_offsets, gripper_offset = sample_robot_starting_pose_offsets(joint_randomization_range, rng)
+        case.robot_joint_offsets = joint_offsets
+        case.gripper_offset = gripper_offset
+    return case
+
+def maybe_randomize_table_height(randomize: bool, case: Case, table_height_randomization_range: float, rng: random.Random) -> Case:
+    if randomize:
+        case.table_offset = sample_table_offset(table_height_randomization_range, rng)
+    return case
+
+def maybe_randomize_target_object_colors(randomize: bool, case: Case, rng: random.Random) -> Case:
+    if randomize:
+        object_color = Color.sample(n=1, rng=rng)[0]
+        target_color = Color.sample(n=1, rng=rng, exclude=[object_color])[0]
+        case.object_rgb = object_color.rgb
+        case.target_rgb = target_color.rgb
+        case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
+    return case
+
+def maybe_randomize_camera_poses(randomize: bool, case: Case, rng: random.Random) -> Case:
+    if randomize:
+        case.camera_pose_main = CameraPose.apply_camera_pose_randomization(case.camera_pose_main, position_jitter=POSITION_JITTER_GLOBAL, rotation_jitter=ROTATION_JITTER_GLOBAL, rng=rng)
+        case.camera_pose_secondary = CameraPose.apply_camera_pose_randomization(case.camera_pose_secondary, position_jitter=POSITION_JITTER_GLOBAL, rotation_jitter=ROTATION_JITTER_GLOBAL, rng=rng)
+        case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=POSITION_JITTER_WRIST, rotation_jitter=ROTATION_JITTER_WRIST, rng=rng)
+    return case
+
+def maybe_add_distractors(add_distractors: bool, case: Case, dim: float, threshold: float, yaw_randomization_range: float, rng_distractor_gen: random.Random, rng_distractor_yaw: random.Random) -> Case:
+    if add_distractors:
+        num_object_distractors = rng_distractor_gen.randint(0, 3)
+        num_target_distractors = rng_distractor_gen.randint(0, 3)
+        distractor_positions = gen_distractor_positions(num_object_distractors + num_target_distractors, [case.object, case.target], threshold=threshold, dim=dim, rng=rng_distractor_gen)
+        distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)], rng=rng_distractor_gen)
+        object_distractors = []
+        target_distractors = []
+        for i in range(num_object_distractors):
+            distractor_pose = Pose(pos=[distractor_positions[i][0], distractor_positions[i][1], 0.0], rpy=RPY_ZERO.copy())
+            if yaw_randomization_range > 0.0:
+                distractor_pose = sample_yaw_angles_for_poses([distractor_pose], yaw_randomization_range, rng=rng_distractor_yaw)[0]
+            object_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i].rgb})
+
+        for i in range(num_target_distractors):
+            distractor_pose = Pose(pos=[distractor_positions[i + num_object_distractors][0], distractor_positions[i + num_object_distractors][1], 0.0], rpy=RPY_ZERO.copy())
+            if yaw_randomization_range > 0.0:
+                distractor_pose = sample_yaw_angles_for_poses([distractor_pose], yaw_randomization_range, rng=rng_distractor_yaw)[0]
+            target_distractors.append({"pos": distractor_pose.pos, "rpy": distractor_pose.rpy, "rgb": distractor_colors[i + num_object_distractors].rgb})
+
+        case.distractors = {
+            "objects": object_distractors,
+            "targets": target_distractors
+        }
+    return case
+
+class NoAliasDumper(yaml.SafeDumper):
+    """YAML dumper that prevents the use of anchors and aliases."""
+    def ignore_aliases(self, data):
+        return True
