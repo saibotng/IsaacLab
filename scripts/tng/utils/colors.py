@@ -66,3 +66,8 @@ class Color(Enum):
     def pretty(self) -> str:
         """Readable name, e.g. 'Deep Purple' for Color.DEEP_PURPLE."""
         return self.name.replace("_", " ").lower()
+    
+    @classmethod
+    def get_excluded_colors_for_limited_set(cls) -> List["Color"]:
+        """Returns a list of colors that should be excluded when limit_colors is True."""
+        return [Color.PINK, Color.LIME, Color.ORANGE, Color.GREY, Color.CYAN, Color.TEAL]

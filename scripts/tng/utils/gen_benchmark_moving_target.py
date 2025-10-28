@@ -28,6 +28,7 @@ def build_cases(dim: float,
                 resolution: int, 
                 threshold: float, 
                 randomize_colors: bool, 
+                limit_colors: bool,
                 joint_randomization_range: float, 
                 table_height_randomization_range: float, 
                 objects_yaw_randomization_range: float, 
@@ -69,9 +70,9 @@ def build_cases(dim: float,
         case = maybe_randomize_table_height(table_height_randomization_range > 0.0, case, table_height_randomization_range, rng_table)
         case = maybe_randomize_target_object_yaw_angles(objects_yaw_randomization_range > 0.0, case, objects_yaw_randomization_range, rng_yaw)
         case = maybe_randomize_joints(joint_randomization_range > 0.0, case, joint_randomization_range, rng_joints)
-        case = maybe_randomize_target_object_colors(randomize_colors, case, rng_colors)
+        case = maybe_randomize_target_object_colors(randomize_colors, limit_colors, case, rng_colors)
         case = maybe_randomize_camera_poses(randomize_camera_poses, case, rng_camera)
-        case = maybe_add_distractors(distractors, case, dim, threshold, objects_yaw_randomization_range, rng_distractors, rng_distractors_yaw)
+        case = maybe_add_distractors(distractors, limit_colors, case, dim, threshold, objects_yaw_randomization_range, rng_distractors, rng_distractors_yaw)
         test_cases.append(case)
 
     # Fill IDs with zero padding
@@ -88,7 +89,8 @@ def build_yaml(name: str,
                resolution: int, 
                threshold: float, 
                required_metrics: List[str], 
-               randomize_colors: bool, 
+               randomize_colors: bool,
+               limit_colors: bool, 
                joint_randomization_range: float, 
                table_height_randomization_range: float, 
                objects_yaw_randomization_range: float, 
@@ -116,6 +118,7 @@ def build_yaml(name: str,
                         resolution, 
                         threshold, 
                         randomize_colors, 
+                        limit_colors,
                         joint_randomization_range, 
                         table_height_randomization_range, 
                         objects_yaw_randomization_range, 
@@ -157,6 +160,7 @@ def main():
     ap.add_argument("--out_dir", type=str, required=True, help="Output YAML filepath.")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility.")
     ap.add_argument("--randomize_colors", action="store_true", help="If set, randomize object/target colors.")
+    ap.add_argument("--limit_colors", action="store_true", help="If set, limit colors to a small set of high-contrast colors.")
     ap.add_argument("--joint_randomization_range", type=float, default=0.0, help="Range (in degrees) for randomizing robot's starting joint positions. If 0, no randomization.")
     ap.add_argument("--table_height_randomization_range", type=float, default=0.0, help="Range (in meters) for randomizing table height. If 0, no randomization.")
     ap.add_argument("--objects_yaw_randomization_range", type=float, default=0.0, help="Range (in degrees) for randomizing object/target yaw. If 0, no randomization.")
@@ -179,6 +183,7 @@ def main():
                      args.threshold, 
                      args.required_metrics, 
                      args.randomize_colors, 
+                     args.limit_colors,
                      args.joint_randomization_range, 
                      args.table_height_randomization_range, 
                      args.objects_yaw_randomization_range, 

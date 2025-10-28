@@ -330,10 +330,14 @@ def maybe_randomize_table_height(randomize: bool, case: Case, table_height_rando
         case.table_offset = sample_table_offset(table_height_randomization_range, rng)
     return case
 
-def maybe_randomize_target_object_colors(randomize: bool, case: Case, rng: random.Random) -> Case:
+def maybe_randomize_target_object_colors(randomize: bool, limit_colors: bool, case: Case, rng: random.Random) -> Case:
     if randomize:
-        object_color = Color.sample(n=1, rng=rng)[0]
-        target_color = Color.sample(n=1, rng=rng, exclude=[object_color])[0]
+        exclude = []
+        if limit_colors:
+            exclude = Color.get_excluded_colors_for_limited_set()
+        object_color = Color.sample(n=1, rng=rng, exclude=exclude)[0]
+        exclude.append(object_color)
+        target_color = Color.sample(n=1, rng=rng, exclude=exclude)[0]
         case.object_rgb = object_color.rgb
         case.target_rgb = target_color.rgb
         case.prompt = PROMPT_TEMPLATE.format(object_color=object_color.pretty, target_color=target_color.pretty)
@@ -346,12 +350,15 @@ def maybe_randomize_camera_poses(randomize: bool, case: Case, rng: random.Random
         case.camera_pose_wrist = CameraPose.apply_camera_pose_randomization(case.camera_pose_wrist, position_jitter=POSITION_JITTER_WRIST, rotation_jitter=ROTATION_JITTER_WRIST, rng=rng)
     return case
 
-def maybe_add_distractors(add_distractors: bool, case: Case, dim: float, threshold: float, yaw_randomization_range: float, rng_distractor_gen: random.Random, rng_distractor_yaw: random.Random) -> Case:
+def maybe_add_distractors(add_distractors: bool, limit_colors: bool, case: Case, dim: float, threshold: float, yaw_randomization_range: float, rng_distractor_gen: random.Random, rng_distractor_yaw: random.Random) -> Case:
     if add_distractors:
         num_object_distractors = rng_distractor_gen.randint(0, 3)
         num_target_distractors = rng_distractor_gen.randint(0, 3)
         distractor_positions = gen_distractor_positions(num_object_distractors + num_target_distractors, [case.object, case.target], threshold=threshold, dim=dim, rng=rng_distractor_gen)
-        distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)], rng=rng_distractor_gen)
+        exclude = []
+        if limit_colors:
+            exclude = Color.get_excluded_colors_for_limited_set()
+        distractor_colors = Color.sample(n=num_object_distractors + num_target_distractors, exclude=[Color.from_rgb(case.object_rgb), Color.from_rgb(case.target_rgb)] + exclude, rng=rng_distractor_gen)
         object_distractors = []
         target_distractors = []
         for i in range(num_object_distractors):
