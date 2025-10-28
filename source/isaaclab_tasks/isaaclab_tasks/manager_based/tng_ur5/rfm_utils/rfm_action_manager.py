@@ -210,7 +210,7 @@ class RFMActionManager:
                 "state.delta_robot_arm": arm_delta,
                 "state.delta_gripper": gripper_delta,
                 "state.tcp_pose": full_obs["end_effector"][env_idx].cpu().unsqueeze(0).numpy(),
-                "annotation.human.action.task_description": [prompt],
+                "annotation.human.task_description": [prompt],
             }
             return gr00t_obs
     
