@@ -1,10 +1,10 @@
 dataset_yaml_paths=(
-    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/visuals_side_shoulder_dynamic.yaml
-    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/visuals_shoulder_front_dynamic.yaml
-    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/visuals_front_side_dynamic.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/language_no_distractors_limited_colors.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/language_with_distractors_all_colors.yaml
+    /home/innovation-hacking/luebbet/dev/IsaacLab/tng_datasets/language_no_distractors_all_colors.yaml
 )
-
-parallel_envs=16
+ 
+parallel_envs=20
 for dataset_yaml_path in "${dataset_yaml_paths[@]}"; do
     dataset_name=$(basename $dataset_yaml_path .yaml)
     working_dir=/home/innovation-hacking/luebbet/dev/important_datasets/pipeline/$dataset_name
