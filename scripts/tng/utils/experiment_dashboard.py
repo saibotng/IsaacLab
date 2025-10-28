@@ -746,7 +746,7 @@ def main():
             "🔄 Compare Experiments", 
             "📋 Dataset Analysis", 
             "📉 TensorBoard Logs",
-            "� Benchmark Summary"
+            "🎯 Benchmark Summary"
         ])
         
         with tabs[0]:  # Overview
